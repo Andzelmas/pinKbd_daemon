@@ -3,7 +3,7 @@ Description="Service that monitors Pisound-Micro pin information and converts th
 
 [Service]
 Type=simple
-ExecStart=/home/vidmantas/Projects/pinKbd_daemon/pinKbd_daemon
+ExecStart=pinKbd_daemon
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
