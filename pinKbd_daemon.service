@@ -1,0 +1,9 @@
+[Unit]
+Description="Service that monitors Pisound-Micro pin information and converts that to keyboard events"
+
+[Service]
+Type=simple
+ExecStart=sudo pinKbd_daemon
+
+[Install]
+WantedBy=default.target
