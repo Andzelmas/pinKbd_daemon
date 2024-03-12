@@ -2,6 +2,9 @@
 Daemon that converts Pisound-Micro and Raspberry Pi GPIO pin info to keyboard events
 
 ### Install
+Need to be able sudo /usr/bin/pinKbd_daemon without a password.
+Otherwise the service wont be able to access the /dev/uinput/
+
 make
 
 make install
