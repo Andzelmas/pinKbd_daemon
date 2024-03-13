@@ -9,6 +9,9 @@
 #include <unistd.h>
 #include <gpiod.h>
 #include <unistd.h>
+#include <inttypes.h>
+//how many lines to read from pisound gpio
+#define PISOUND_NUM_LINES 2
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -27,6 +30,8 @@ static void emit(int fd, int type, int code, int val){
 }
 
 //clean everything function
+//TODO create a convenient struct and clean not only chips but lines etc.
+//and send here the single struct not a variable per chip, line etc
 static void clean(int* uinput_fd, struct gpiod_chip* rpi_chip, struct gpiod_chip* pisound_chip){
     ioctl(*uinput_fd, UI_DEV_DESTROY);
     close(*uinput_fd);
@@ -36,6 +41,53 @@ static void clean(int* uinput_fd, struct gpiod_chip* rpi_chip, struct gpiod_chip
     if(pisound_chip)
 	gpiod_chip_close(pisound_chip);
 }
+
+static struct gpiod_line_request* request_input_line(struct gpiod_chip* chip,
+						     const unsigned int* offsets,
+						     unsigned int num_lines,
+						     const char* consumer){
+    if(!chip)return NULL;
+
+    struct gpiod_request_config* reg_cfg = NULL;
+    struct gpiod_line_request* request = NULL;
+    struct gpiod_line_settings* settings = NULL;
+    struct gpiod_line_config* line_cfg = NULL;
+
+    settings = gpiod_line_settings_new();
+    if(!settings)return NULL;
+
+    gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
+    gpiod_line_settings_set_edge_detection(settings, GPIOD_LINE_EDGE_BOTH);
+    gpiod_line_settings_set_bias(settings, GPIOD_LINE_BIAS_PULL_UP);
+    //gpiod_line_settings_set_debounce_period_us(settings, 1000);
+    
+    line_cfg = gpiod_line_config_new();
+    if(!line_cfg)
+	goto clean;
+    for(int i = 0; i < num_lines; i++){
+	int ret = gpiod_line_config_add_line_settings(line_cfg, &offsets[i], 1, settings);
+	if(ret)
+	    goto clean;
+    }
+    if(consumer){
+	reg_cfg = gpiod_request_config_new();
+	if(!reg_cfg)
+	    goto clean;
+	gpiod_request_config_set_consumer(reg_cfg, consumer);
+    }
+    request = gpiod_chip_request_lines(chip, reg_cfg, line_cfg);
+
+clean:
+    if(settings)
+	gpiod_line_settings_free(settings);
+    if(line_cfg)
+	gpiod_line_config_free(line_cfg);
+    if(reg_cfg)
+	gpiod_request_config_free(reg_cfg);
+
+    return request;
+}
+
 int main(){
     //Initiate struct for SIGTERM handling
     //----------------------------------
@@ -91,20 +143,33 @@ int main(){
     //---------------------------------------------------
     //TODO user should be able to change chip names in a cofig file
     //(maybe same one where keyboard shortcuts are changed)
-    const char* rpi_chipname = "gpiochip0";
-    const char* pisound_chipname = "gpiochip2";
-    struct gpiod_chip* rpi_chip = NULL;
+    const char* pisound_chipath = "/dev/gpiochip2";
     struct gpiod_chip* pisound_chip = NULL;
-    rpi_chip = gpiod_chip_open(rpi_chipname);
-    pisound_chip = gpiod_chip_open(pisound_chipname);
-    if(!rpi_chip || !pisound_chip){
-	clean(&fd, rpi_chip, pisound_chip);
+    pisound_chip = gpiod_chip_open(pisound_chipath);
+    if(!pisound_chip){
+	printf("cant find the chip\n");
+	clean(&fd, NULL, pisound_chip);
+	return -1;
+    }
+    const unsigned int pisound_offsets[PISOUND_NUM_LINES] = {6, 7};
+    struct gpiod_line_request* pisound_lines = request_input_line(pisound_chip, pisound_offsets, PISOUND_NUM_LINES, "pisound_mult_lines_watch");
+    if(!pisound_lines){
+	printf("no line \n");
+	clean(&fd, NULL, pisound_chip);
+	return -1;
+    }
+    struct gpiod_edge_event_buffer* event_buffer = NULL;
+    struct gpiod_edge_event* event = NULL;
+    int event_buf_size = PISOUND_NUM_LINES;
+    event_buffer = gpiod_edge_event_buffer_new(event_buf_size);
+    if(!event_buffer){
+	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
     
     //sleep after initiate so that the system has time to register the device this can be deleted
     //when the emit will emit events only when encoders or buttons are used
-    sleep(1);
+    //sleep(1);
     
     while(!done){
 	//TODO only for testing, should emit only when encoder or button is used
@@ -114,11 +179,21 @@ int main(){
 	emit(fd, EV_KEY, KEY_1, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	*/
-	gpiod_line_info
+	int ret = gpiod_line_request_read_edge_events(pisound_lines, event_buffer, event_buf_size);
+
+	if(ret != -1){
+	    for(int i = 0; i < ret; i++){
+		event = gpiod_edge_event_buffer_get_event(event_buffer, i);
+		unsigned int offset = gpiod_edge_event_get_line_offset(event);
+		unsigned int type = gpiod_edge_event_get_event_type(event);
+		uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event);
+		printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+	    }
+	}
     }
     
     //clean everything here
-    clean(&fd, rpi_chip, pisound_chip);
+    clean(&fd, NULL, pisound_chip);
 
     printf("the pinKbd service is shutting down\n");
     return 0;
