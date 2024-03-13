@@ -75,17 +75,9 @@ int main(){
     
     while(!done){
 	//TODO only for testing, should emit only when encoder or button is used
-	/*
 	emit(fd, EV_KEY, KEY_1, 1);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	emit(fd, EV_KEY, KEY_1, 0);
-	emit(fd, EV_SYN, SYN_REPORT, 0);
-	*/
-	emit(fd, EV_KEY, KEY_LEFTMETA, 1);
-	emit(fd, EV_KEY, KEY_A, 1);
-	emit(fd, EV_SYN, SYN_REPORT, 0);
-	emit(fd, EV_KEY, KEY_LEFTMETA, 0);
-	emit(fd, EV_KEY, KEY_A, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	//sleep only for testing, so the events are not simulated too fast
 	usleep(1500000);

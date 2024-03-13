@@ -5,6 +5,9 @@ FILE=pinKbd_daemon
 
 MAIN_SRC=pinKbd_daemon.c
 
+#Remote dir for the source code
+PI_DIR = ~/Audio/Source/pinKbd_daemon/
+
 create_pinKbd_daemon:
 	$(CC) -g -x c -o $(FILE) $(MAIN_SRC)
 install:
@@ -21,3 +24,11 @@ uninstall:
 clean_local:
 	rm pinKbd_daemon
 clean_all: clean_local uninstall
+
+.PHONY: rsync_src
+pi_build: rsync_src
+	ssh pi_daw make -C $(PI_DIR)
+pi_run:
+	ssh pi_daw -t "cd $(PI_DIR) && sudo ./pinKbd_daemon"
+rsync_src:
+	rsync -va * pi_daw:$(PI_DIR)
