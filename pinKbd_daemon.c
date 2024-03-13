@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <gpiod.h>
+#include <unistd.h>
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -24,18 +26,33 @@ static void emit(int fd, int type, int code, int val){
     write(fd, &ie, sizeof(ie));
 }
 
+//clean everything function
+static void clean(int* uinput_fd, struct gpiod_chip* rpi_chip, struct gpiod_chip* pisound_chip){
+    ioctl(*uinput_fd, UI_DEV_DESTROY);
+    close(*uinput_fd);
+
+    if(rpi_chip)
+	gpiod_chip_close(rpi_chip);
+    if(pisound_chip)
+	gpiod_chip_close(pisound_chip);
+}
 int main(){
+    //Initiate struct for SIGTERM handling
+    //----------------------------------
     struct sigaction sig_action;
     memset(&sig_action, 0, sizeof(struct sigaction));
     sig_action.sa_handler = term;
     sigaction(SIGTERM, &sig_action, NULL);
+    //----------------------------------
 
+    //Initiate the uinput setup
+    //-----------------------------------
     struct uinput_setup usetup;
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     //initiate the virtual device for emmiting the keypresses
     ioctl(fd, UI_SET_EVBIT, EV_KEY);
     //TODO What keys to use should be sourced from a file, where user can configure what
-    //encoders and buttons produce what keypresses
+    //encoders and buttons produce what keypresses. If no such file just use these as defaults
     ioctl(fd, UI_SET_KEYBIT, KEY_1);
     ioctl(fd, UI_SET_KEYBIT, KEY_2);
     ioctl(fd, UI_SET_KEYBIT, KEY_3);
@@ -68,23 +85,41 @@ int main(){
 
     ioctl(fd, UI_DEV_SETUP, &usetup);
     ioctl(fd, UI_DEV_CREATE);
+    //---------------------------------------------
 
+    //Initiate the gpio
+    //---------------------------------------------------
+    //TODO user should be able to change chip names in a cofig file
+    //(maybe same one where keyboard shortcuts are changed)
+    const char* rpi_chipname = "gpiochip0";
+    const char* pisound_chipname = "gpiochip2";
+    struct gpiod_chip* rpi_chip = NULL;
+    struct gpiod_chip* pisound_chip = NULL;
+    rpi_chip = gpiod_chip_open(rpi_chipname);
+    pisound_chip = gpiod_chip_open(pisound_chipname);
+    if(!rpi_chip || !pisound_chip){
+	clean(&fd, rpi_chip, pisound_chip);
+	return -1;
+    }
+    
     //sleep after initiate so that the system has time to register the device this can be deleted
     //when the emit will emit events only when encoders or buttons are used
     sleep(1);
     
     while(!done){
 	//TODO only for testing, should emit only when encoder or button is used
+	/*
 	emit(fd, EV_KEY, KEY_1, 1);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	emit(fd, EV_KEY, KEY_1, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
-	//sleep only for testing, so the events are not simulated too fast
-	usleep(1500000);
+	*/
+	gpiod_line_info
     }
+    
     //clean everything here
-    ioctl(fd, UI_DEV_DESTROY);
-    close(fd);
+    clean(&fd, rpi_chip, pisound_chip);
+
     printf("the pinKbd service is shutting down\n");
     return 0;
 }

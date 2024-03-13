@@ -2,14 +2,15 @@
 CC=gcc
 #name of the binary filename
 FILE=pinKbd_daemon
-
+#additional libraries
+LIBS=-lgpiod
 MAIN_SRC=pinKbd_daemon.c
 
 #Remote dir for the source code
 PI_DIR = ~/Audio/Source/pinKbd_daemon/
 
 create_pinKbd_daemon:
-	$(CC) -g -x c -o $(FILE) $(MAIN_SRC)
+	$(CC) -g -x c -o $(FILE) $(MAIN_SRC) $(LIBS)
 install:
 	sudo cp pinKbd_daemon /usr/bin/
 	mkdir -p ~/.config/systemd/user/
