@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 //how many lines to read from pisound gpio
-#define PISOUND_NUM_LINES 2
+#define PISOUND_NUM_LINES 3
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -151,7 +151,7 @@ int main(){
 	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
-    const unsigned int pisound_offsets[PISOUND_NUM_LINES] = {6, 7};
+    const unsigned int pisound_offsets[PISOUND_NUM_LINES] = {6, 7, 34};
     struct gpiod_line_request* pisound_lines = request_input_line(pisound_chip, pisound_offsets, PISOUND_NUM_LINES, "pisound_mult_lines_watch");
     if(!pisound_lines){
 	printf("no line \n");
@@ -170,7 +170,6 @@ int main(){
     //sleep after initiate so that the system has time to register the device this can be deleted
     //when the emit will emit events only when encoders or buttons are used
     //sleep(1);
-    
     while(!done){
 	//TODO only for testing, should emit only when encoder or button is used
 	/*
@@ -179,15 +178,16 @@ int main(){
 	emit(fd, EV_KEY, KEY_1, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	*/
-	int ret = gpiod_line_request_read_edge_events(pisound_lines, event_buffer, event_buf_size);
-
-	if(ret != -1){
-	    for(int i = 0; i < ret; i++){
-		event = gpiod_edge_event_buffer_get_event(event_buffer, i);
-		unsigned int offset = gpiod_edge_event_get_line_offset(event);
-		unsigned int type = gpiod_edge_event_get_event_type(event);
-		uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event);
-		printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+	if(gpiod_line_request_wait_edge_events(pisound_lines, 0)){
+	    int ret = gpiod_line_request_read_edge_events(pisound_lines, event_buffer, event_buf_size);
+	    if(ret > 0){
+		for(int i = 0; i < ret; i++){
+		    event = gpiod_edge_event_buffer_get_event(event_buffer, i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event);
+		    unsigned int type = gpiod_edge_event_get_event_type(event);
+		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event);
+		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+		}
 	    }
 	}
     }
