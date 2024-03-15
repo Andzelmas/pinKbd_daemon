@@ -10,8 +10,12 @@
 #include <gpiod.h>
 #include <unistd.h>
 #include <inttypes.h>
-//how many lines to read from pisound gpio
-#define PISOUND_NUM_LINES 3
+//how many lines to read from pisound gpio for encoders
+#define PISOUND_ENC_NUM_LINES 16
+//how many lines to read from pisound gpio for buttons
+#define PISOUND_BUT_NUM_LINES 19
+//how many lines to read from the Raspberry Pi for buttons
+#define RPI_BUT_NUM_LINES 5
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -45,7 +49,7 @@ static void clean(int* uinput_fd, struct gpiod_chip* rpi_chip, struct gpiod_chip
 static struct gpiod_line_request* request_input_line(struct gpiod_chip* chip,
 						     const unsigned int* offsets,
 						     unsigned int num_lines,
-						     const char* consumer){
+						     const char* consumer, unsigned int debounce){
     if(!chip)return NULL;
 
     struct gpiod_request_config* reg_cfg = NULL;
@@ -59,7 +63,8 @@ static struct gpiod_line_request* request_input_line(struct gpiod_chip* chip,
     gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
     gpiod_line_settings_set_edge_detection(settings, GPIOD_LINE_EDGE_BOTH);
     gpiod_line_settings_set_bias(settings, GPIOD_LINE_BIAS_PULL_UP);
-    //gpiod_line_settings_set_debounce_period_us(settings, 1000);
+    if(debounce==1)
+	gpiod_line_settings_set_debounce_period_us(settings, 10000);
     
     line_cfg = gpiod_line_config_new();
     if(!line_cfg)
@@ -141,28 +146,44 @@ int main(){
 
     //Initiate the gpio
     //---------------------------------------------------
-    //TODO user should be able to change chip names in a cofig file
-    //(maybe same one where keyboard shortcuts are changed)
+    //TODO unify everything into a single struct where encoders and buttons are built, now too much copy paste
+    //ALSO 3 kinds of event_buffers, offsets etc... should be more elegant and clean
     const char* pisound_chipath = "/dev/gpiochip2";
     struct gpiod_chip* pisound_chip = NULL;
     pisound_chip = gpiod_chip_open(pisound_chipath);
-    if(!pisound_chip){
+
+    const char* rpi_chipath = "/dev/gpiochip0";
+    struct gpiod_chip* rpi_chip = NULL;
+    rpi_chip = gpiod_chip_open(rpi_chipath);
+    if(!pisound_chip || !rpi_chip){
 	printf("cant find the chip\n");
 	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
-    const unsigned int pisound_offsets[PISOUND_NUM_LINES] = {6, 7, 34};
-    struct gpiod_line_request* pisound_lines = request_input_line(pisound_chip, pisound_offsets, PISOUND_NUM_LINES, "pisound_mult_lines_watch");
-    if(!pisound_lines){
+    const unsigned int pisound_encoders_offsets[PISOUND_ENC_NUM_LINES] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
+    const unsigned int pisound_but_offsets[PISOUND_BUT_NUM_LINES] = {22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0, 1, 2, 3, 4};
+    const unsigned int rpi_but_offsets[RPI_BUT_NUM_LINES] = {17, 27, 22, 23, 24};
+    struct gpiod_line_request* pisound_encoders_req = request_input_line(pisound_chip, pisound_encoders_offsets, PISOUND_ENC_NUM_LINES, "pisound_encoders_lines_watch", 0);
+    struct gpiod_line_request* pisound_buttons_req = request_input_line(pisound_chip, pisound_but_offsets, PISOUND_BUT_NUM_LINES, "pisound_but_lines_watch", 0);
+    struct gpiod_line_request* rpi_buttons_req = request_input_line(rpi_chip, rpi_but_offsets, RPI_BUT_NUM_LINES, "rpi_but_lines_watch", 1);
+    if(!pisound_encoders_req || !pisound_buttons_req || !rpi_buttons_req){
 	printf("no line \n");
 	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
-    struct gpiod_edge_event_buffer* event_buffer = NULL;
-    struct gpiod_edge_event* event = NULL;
-    int event_buf_size = PISOUND_NUM_LINES;
-    event_buffer = gpiod_edge_event_buffer_new(event_buf_size);
-    if(!event_buffer){
+    struct gpiod_edge_event_buffer* event_encoders_buffer = NULL;
+    struct gpiod_edge_event* event_encoder = NULL;
+    int event_encoders_buf_size = PISOUND_ENC_NUM_LINES;
+    struct gpiod_edge_event_buffer* event_but_buffer = NULL;
+    struct gpiod_edge_event* event_but = NULL;
+    int event_but_buf_size = PISOUND_BUT_NUM_LINES;
+    struct gpiod_edge_event_buffer* event_rpi_but_buffer = NULL;
+    struct gpiod_edge_event* event_rpi_but = NULL;
+    int event_rpi_but_buf_size = RPI_BUT_NUM_LINES;   
+    event_encoders_buffer = gpiod_edge_event_buffer_new(event_encoders_buf_size);
+    event_but_buffer = gpiod_edge_event_buffer_new(event_but_buf_size);
+    event_rpi_but_buffer = gpiod_edge_event_buffer_new(event_rpi_but_buf_size);
+    if(!event_encoders_buffer || !event_but_buffer || !event_rpi_but_buffer){
 	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
@@ -178,14 +199,39 @@ int main(){
 	emit(fd, EV_KEY, KEY_1, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	*/
-	if(gpiod_line_request_wait_edge_events(pisound_lines, 0)){
-	    int ret = gpiod_line_request_read_edge_events(pisound_lines, event_buffer, event_buf_size);
+	//TODO need a wrap function for all of this
+	if(gpiod_line_request_wait_edge_events(pisound_encoders_req, 0)){
+	    int ret = gpiod_line_request_read_edge_events(pisound_encoders_req, event_encoders_buffer, event_encoders_buf_size);
 	    if(ret > 0){
 		for(int i = 0; i < ret; i++){
-		    event = gpiod_edge_event_buffer_get_event(event_buffer, i);
-		    unsigned int offset = gpiod_edge_event_get_line_offset(event);
-		    unsigned int type = gpiod_edge_event_get_event_type(event);
-		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event);
+		    event_encoder = gpiod_edge_event_buffer_get_event(event_encoders_buffer, i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event_encoder);
+		    unsigned int type = gpiod_edge_event_get_event_type(event_encoder);
+		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_encoder);
+		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+		}
+	    }
+	}
+	if(gpiod_line_request_wait_edge_events(pisound_buttons_req, 0)){
+	    int ret = gpiod_line_request_read_edge_events(pisound_buttons_req, event_but_buffer, event_but_buf_size);
+	    if(ret > 0){
+		for(int i = 0; i < ret; i++){
+		    event_but = gpiod_edge_event_buffer_get_event(event_but_buffer, i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event_but);
+		    unsigned int type = gpiod_edge_event_get_event_type(event_but);
+		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_but);
+		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+		}
+	    }	    
+	}
+	if(gpiod_line_request_wait_edge_events(rpi_buttons_req, 0)){
+	    int ret = gpiod_line_request_read_edge_events(rpi_buttons_req, event_rpi_but_buffer, event_rpi_but_buf_size);
+	    if(ret > 0){
+		for(int i = 0; i < ret; i++){
+		    event_rpi_but = gpiod_edge_event_buffer_get_event(event_rpi_but_buffer, i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event_rpi_but);
+		    unsigned int type = gpiod_edge_event_get_event_type(event_rpi_but);
+		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_rpi_but);
 		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
 		}
 	    }
