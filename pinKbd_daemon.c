@@ -244,7 +244,7 @@ int main(){
 		if(final_num_last != final_num){
 		    if(final_num == 180) enc_count += 1;
 		    if(final_num == 120) enc_count -= 1;
-		    if(enc_count >= 2){
+		    if(enc_count >= 1){
 			printf("CW Rotation \n");
 			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);			
 			emit(fd, EV_KEY, KEY_1, 1);
@@ -254,7 +254,7 @@ int main(){
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 			enc_count = 0;
 		    }
-		    if(enc_count <= -2){
+		    if(enc_count <= -1){
 			printf("CCW Rotation \n");
 			emit(fd, EV_KEY, KEY_LEFTALT, 1);			
 			emit(fd, EV_KEY, KEY_1, 1);
