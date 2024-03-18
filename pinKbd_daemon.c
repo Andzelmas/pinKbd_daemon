@@ -11,9 +11,9 @@
 #include <unistd.h>
 #include <inttypes.h>
 //how many lines to read from pisound gpio for encoders
-#define PISOUND_ENC_NUM_LINES 16
+#define PISOUND_ENC_NUM_LINES 18
 //how many lines to read from pisound gpio for buttons
-#define PISOUND_BUT_NUM_LINES 19
+#define PISOUND_BUT_NUM_LINES 17
 //how many lines to read from the Raspberry Pi for buttons
 #define RPI_BUT_NUM_LINES 5
 //var and function to catch SIGTERM when the program is killed
@@ -160,8 +160,8 @@ int main(){
 	clean(&fd, NULL, pisound_chip);
 	return -1;
     }
-    const unsigned int pisound_encoders_offsets[PISOUND_ENC_NUM_LINES] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-    const unsigned int pisound_but_offsets[PISOUND_BUT_NUM_LINES] = {22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0, 1, 2, 3, 4};
+    const unsigned int pisound_encoders_offsets[PISOUND_ENC_NUM_LINES] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+    const unsigned int pisound_but_offsets[PISOUND_BUT_NUM_LINES] = {24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0, 1, 2, 3, 4};
     const unsigned int rpi_but_offsets[RPI_BUT_NUM_LINES] = {17, 27, 22, 23, 24};
     struct gpiod_line_request* pisound_encoders_req = request_input_line(pisound_chip, pisound_encoders_offsets, PISOUND_ENC_NUM_LINES, "pisound_encoders_lines_watch", 0);
     struct gpiod_line_request* pisound_buttons_req = request_input_line(pisound_chip, pisound_but_offsets, PISOUND_BUT_NUM_LINES, "pisound_but_lines_watch", 0);
@@ -191,6 +191,16 @@ int main(){
     //sleep after initiate so that the system has time to register the device this can be deleted
     //when the emit will emit events only when encoders or buttons are used
     //sleep(1);
+    //TODO these variables should be per encoder
+    //-----------------------------------------
+    unsigned int l_A = 0;
+    unsigned int c_A = 0;
+    unsigned int l_B = 0;
+    unsigned int c_B = 0;
+    unsigned char final_num = 0;
+    unsigned char final_num_last = 0;
+    int enc_count = 0;
+    //-----------------------------------------
     while(!done){
 	//TODO only for testing, should emit only when encoder or button is used
 	/*
@@ -200,6 +210,7 @@ int main(){
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	*/
 	//TODO need a wrap function for all of this
+
 	if(gpiod_line_request_wait_edge_events(pisound_encoders_req, 0)){
 	    int ret = gpiod_line_request_read_edge_events(pisound_encoders_req, event_encoders_buffer, event_encoders_buf_size);
 	    if(ret > 0){
@@ -207,10 +218,44 @@ int main(){
 		    event_encoder = gpiod_edge_event_buffer_get_event(event_encoders_buffer, i);
 		    unsigned int offset = gpiod_edge_event_get_line_offset(event_encoder);
 		    unsigned int type = gpiod_edge_event_get_event_type(event_encoder);
-		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_encoder);
-		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
+		    unsigned int type_ = 0;
+		    if(type == 1) type_ = 1;
+		    if(offset % 2 == 0){
+			if(type_ != c_A){
+			    c_A = type_;
+			    //printf("offset %d type %d type %d\n", offset, c_A, c_B);
+			    final_num = final_num << 1;
+			    final_num = final_num | c_A;
+			    final_num = final_num << 1;
+			    final_num = final_num | c_B;
+			}
+		    }
+		    else{
+			if(type_ != c_B){
+			    c_B = type_;
+			    //printf("offset %d type %d type %d\n", offset, c_A, c_B);
+			    final_num = final_num << 1;
+			    final_num = final_num | c_A;
+			    final_num = final_num << 1;
+			    final_num = final_num | c_B;
+			}
+		    }
 		}
-	    }
+		if(final_num_last != final_num){
+		    if(final_num == 180) enc_count += 1;
+		    if(final_num == 120) enc_count -= 1;
+		    if(enc_count >= 4){
+			printf("CW Rotation \n");
+			enc_count = 0;
+		    }
+		    if(enc_count <= -4){
+			printf("CCW Rotation \n");
+			enc_count = 0;
+		    }
+		    final_num_last = final_num;
+		}
+ 	    }
+
 	}
 	if(gpiod_line_request_wait_edge_events(pisound_buttons_req, 0)){
 	    int ret = gpiod_line_request_read_edge_events(pisound_buttons_req, event_but_buffer, event_but_buf_size);
