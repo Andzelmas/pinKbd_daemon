@@ -353,7 +353,8 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	if(chip_in_btns_num <= 0)
 	    free(btns_lines_for_req);
     }
-    
+    pinKbd_obj->num_of_pin_events = num_of_events;
+    printf("Created %d events \n", pinKbd_obj->num_of_pin_events);
     return pinKbd_obj;
 }
 
@@ -411,7 +412,7 @@ int main(){
     //Initiate the gpio
     //---------------------------------------------------
     PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"}, (const unsigned int[4]){6,7,8,9}, 2,
-					       (const unsigned int[2]){1,1}, (const unsigned int[2]){23,24}, 2, (const unsigned int[2]){0, 0});
+					       (const unsigned int[2]){1,1}, (const unsigned int[2]){23,24}, 1, (const unsigned int[2]){0, 0});
     if(!pinKbd_obj){
 	pinKbd_clean(&fd, NULL);
 	return -1;
