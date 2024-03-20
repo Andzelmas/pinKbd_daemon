@@ -43,6 +43,7 @@ typedef struct _pinKbd_EVENT{
     struct gpiod_edge_event_buffer* edge_event_buffer; //the buffer that has the line events, its size should be equal to num_of_watched_lines
     unsigned int watch_buttons; //if == 1 this event watches buttons, otherwise - encoders. usefull when there is an event in the buffer and its
     //necessary to get the corresponding encoder or button (usually encoders or buttons index in the array).
+    unsigned int chip_num; //chip number for this event in the PINKBD_GPIO_COMM chips array
 }PINKBD_EVENT;
 
 //struct that holds all of the gpio communication
@@ -162,7 +163,21 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
     curr_event->num_of_watched_lines = lines_num;
     curr_event->watched_lines = lines_for_req;
     curr_event->watch_buttons = buttons;
+    curr_event->chip_num = 0;
+    curr_event->edge_event_buffer = NULL;
+    curr_event->final_values = NULL;
+    curr_event->final_values_last = NULL;
+    curr_event->line_values = NULL;
     curr_event->edge_event_buffer = gpiod_edge_event_buffer_new(curr_event->num_of_watched_lines);
+    
+    //which chip this is in the chips array
+    for(int chp_i = 0; chp_i < pinKbd_obj->num_of_chips; chp_i++){
+	if(!(pinKbd_obj->chips[chp_i]))continue;
+	if(pinKbd_obj->chips[chp_i] == curr_chip){
+	    curr_event->chip_num = chp_i;
+	    break;
+	}
+    }
     if(!(curr_event->edge_event_buffer)){
 	printf("Could not create edge_event_buffer for the event\n");
 	return -1;
@@ -280,7 +295,7 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	//if there where buttons with this chip create request, event etc.
 	if(chip_in_btns_num > 0 && btns_lines_for_req){
 	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 0) == -1){
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 1) == -1){
 		pinKbd_clean(NULL, pinKbd_obj);
 		return NULL;
 	    }	    
@@ -319,7 +334,30 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj){
 		    unsigned int type = gpiod_edge_event_get_event_type(event);
 		    unsigned int type_ = 0;
 		    if(type == 1) type_ = 1;
+		    //find which button or encoder
+		    int line_idx = -1;
+		    for(int ln_i = 0; ln_i < curr_event->num_of_watched_lines; ln_i++){
+			unsigned int curr_line = curr_event->watched_lines[ln_i];
+			if(curr_line == offset){
+			    line_idx = ln_i;
+			    break;
+			}
+		    }
+		    if(line_idx == -1){
+			printf("line not found in event watched lines\n");
+			continue;
+		    }
+		    //if this is an encoder, get the encoder number from the line index (since there are two lines per encoder)
+		    if(curr_event->watch_buttons == 0){
+			if(line_idx%2 != 0)line_idx -= 1;
+			line_idx *= 0.5;
+		    }
+		    
 		    printf("Offset %d type_ %d\n", offset, type_);
+		    if(curr_event->watch_buttons)
+			printf("%d event is for a button %d in chip %d\n", i, line_idx, curr_event->chip_num);
+		    if(!curr_event->watch_buttons)
+			printf("%d event is for an encoder %d in chip %d\n", i, line_idx, curr_event->chip_num);
 		}
 	    }
 	}
@@ -381,8 +419,11 @@ int main(){
 
     //Initiate the gpio
     //---------------------------------------------------
-    PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"}, (const unsigned int[4]){6,7,8,9}, 2,
-					       (const unsigned int[2]){1,1}, (const unsigned int[2]){23,24}, 2, (const unsigned int[2]){0, 0});
+    PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"},
+					       (const unsigned int[18]){6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}, 9,
+					       (const unsigned int[18]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,33,34,35,0,1,2,3,4,17,27,22,23,24}, 22,
+					       (const unsigned int[22]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0});
     if(!pinKbd_obj){
 	pinKbd_clean(&fd, NULL);
 	return -1;
