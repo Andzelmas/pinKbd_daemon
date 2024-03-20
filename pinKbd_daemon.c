@@ -352,7 +352,16 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj){
 			if(line_idx%2 != 0)line_idx -= 1;
 			line_idx *= 0.5;
 		    }
-		    
+		    //TODO update line_values for encoders and buttons
+		    //TODO for encoders do the bitwise operations and update in which direction a tick happened, will need a variable on event to store this info
+		    //TODO these rotations will accumulate +1 for CW and -1 for CCW
+		    //TODO new function pinKbd_invoke() will go through encoders and buttons and depending on the values and which encoder or button invoked
+		    //will call an action (like emmit keyboard). Then this function will make the value 0. This way can control sensitivity - for example dont
+		    //invoke until an encoder has +2 or -2 rotation (so two ticks in any direction). For buttons will need to watch the last and current value
+		    //if they are the same do nothing if they changed do something (emmit keyboard) and change the last value to current. This way for buttons
+		    //do something only when the button value changes - no need to emmit non stop 1 calls when the button is pushed, emmit 1 when pushed and
+		    //0 when released.
+		    //TODO still need to think where and how to debounce buttons
 		    printf("Offset %d type_ %d\n", offset, type_);
 		    if(curr_event->watch_buttons)
 			printf("%d event is for a button %d in chip %d\n", i, line_idx, curr_event->chip_num);
