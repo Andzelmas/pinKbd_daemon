@@ -429,22 +429,6 @@ int main(){
 	return -1;
     }
     
-    
-    //sleep after initiate so that the system has time to register the device this can be deleted
-    //when the emit will emit events only when encoders or buttons are used
-    //sleep(1);
-    //TODO these variables should be per encoder
-    //-----------------------------------------
-    /*
-    unsigned int l_A = 0;
-    unsigned int c_A = 0;
-    unsigned int l_B = 0;
-    unsigned int c_B = 0;
-    unsigned char final_num = 0;
-    unsigned char final_num_last = 0;
-    int enc_count = 0;
-    */
-    //-----------------------------------------
     while(!done){
 	pinKbd_update_values(pinKbd_obj);
 	//TODO only for testing, should emit only when encoder or button is used
