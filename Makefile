@@ -31,5 +31,7 @@ pi_build: rsync_src
 	ssh pi_daw make -C $(PI_DIR)
 pi_run:
 	ssh pi_daw -t "cd $(PI_DIR) && sudo ./pinKbd_daemon"
+pi_run_valgrind:
+	ssh pi_daw -t "cd $(PI_DIR) && sudo valgrind --leak-check=full --log-file=val_log ./pinKbd_daemon"
 rsync_src:
 	rsync -va * pi_daw:$(PI_DIR)

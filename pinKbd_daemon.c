@@ -36,36 +36,19 @@ static void emit(int fd, int type, int code, int val){
 typedef struct _pinKbd_EVENT{
     struct gpiod_line_request* event_request;
     unsigned int* watched_lines; //the array of lines that are being watched by the event_request
+    unsigned int* line_values; //the current values of the watched lines, dont forget encoder has lines in pairs
+    unsigned char* final_values; //final values for encoders (one value per encoder), if final_value == 180 encoder CW, if 120 - CCW
+    unsigned char* final_values_last; //final values for encoders that where last time of checking, for comparing with final_values, to update a tick only when the value changed
     unsigned int num_of_watched_lines; //how many lines are watched by this event
     struct gpiod_edge_event_buffer* edge_event_buffer; //the buffer that has the line events, its size should be equal to num_of_watched_lines
     unsigned int watch_buttons; //if == 1 this event watches buttons, otherwise - encoders. usefull when there is an event in the buffer and its
     //necessary to get the corresponding encoder or button (usually encoders or buttons index in the array).
 }PINKBD_EVENT;
-//encoder struct
-typedef struct _pinKbd_ENCODER{
-    struct gpiod_chip* chip; //the chip this encoder uses for the gpio lines
-    unsigned int lines[2]; //encoder pin numbers for the two channels
-    unsigned int curr_edge_0; //current edge (0 or 1) for the lines[0]
-    unsigned int curr_edge_1; //current edge (0 or 1) for the lines[1]
-    unsigned char final_num; //the 8-bits that hold the sequence of edge values, from this its possible to know if encoder rotates CW or CCW
-    unsigned char final_num_last; //the last 8-bit sequence that had the edge values to compare to final_num so encoder tick is announced only when final_num changes
-}PINKBD_ENCODER;
-//button struct
-typedef struct _pinKbd_BUTTON{
-    struct gpiod_chip* chip; //the chip this button uses for the gpio lines
-    unsigned int line; //button pin number
-}PINKBD_BUTTON;
 
 //struct that holds all of the gpio communication
 typedef struct _pinKbd_GPIO_COMM{
     struct gpiod_chip** chips;
     unsigned int num_of_chips;
-    //array of the encoders
-    PINKBD_ENCODER** encoders;
-    unsigned int num_of_encoders;
-    //array of the buttons
-    PINKBD_BUTTON** buttons;
-    unsigned int num_of_buttons;
     //the events that watch the lines asigned to them
     PINKBD_EVENT** pin_events;
     unsigned int num_of_pin_events;
@@ -87,19 +70,7 @@ static void pinKbd_clean(int* uinput_fd, PINKBD_GPIO_COMM* pinKbd_obj){
 		continue;
 	    gpiod_chip_close(pinKbd_obj->chips[i]);
 	}
-    }
-    //free the encoders and buttons
-    if(pinKbd_obj->encoders){
-	for(int i = 0; i < pinKbd_obj->num_of_encoders; i++){
-	    if(pinKbd_obj->encoders[i])free(pinKbd_obj->encoders[i]);
-	}
-	free(pinKbd_obj->encoders);
-    }
-    if(pinKbd_obj->buttons){
-	for(int i = 0; i < pinKbd_obj->num_of_buttons; i++){
-	    if(pinKbd_obj->buttons[i])free(pinKbd_obj->buttons[i]);
-	}
-	free(pinKbd_obj->buttons);
+	free(pinKbd_obj->chips);
     }
 
     //clean the events
@@ -110,6 +81,9 @@ static void pinKbd_clean(int* uinput_fd, PINKBD_GPIO_COMM* pinKbd_obj){
 	    if(curr_event->edge_event_buffer)gpiod_edge_event_buffer_free(curr_event->edge_event_buffer);
 	    if(curr_event->event_request)gpiod_line_request_release(curr_event->event_request);
 	    if(curr_event->watched_lines)free(curr_event->watched_lines);
+	    if(curr_event->line_values)free(curr_event->line_values);
+	    if(curr_event->final_values)free(curr_event->final_values);
+	    if(curr_event->final_values_last)free(curr_event->final_values_last);
 	    free(curr_event);
 	}
 	free(pinKbd_obj->pin_events);
@@ -163,9 +137,11 @@ clean:
 
     return request;
 }
-
+//initiate the event struct
+//lines_num - how many pins are watched for this event, for encoders two lines per encoder
+//control_num - how many encoders or buttons are watched, for buttons lines_num == control_num, for encoders lines_num *2 == control_num
 static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_events,
-			     struct gpiod_chip* curr_chip, unsigned int* lines_for_req, unsigned int lines_num, const char* consumer,
+			     struct gpiod_chip* curr_chip, unsigned int* lines_for_req, unsigned int lines_num, unsigned int control_num, const char* consumer,
 			     unsigned int debounce, unsigned int buttons){
     pinKbd_obj->pin_events = realloc(pinKbd_obj->pin_events, sizeof(PINKBD_EVENT*) * num_of_events);
     if(!(pinKbd_obj->pin_events)){
@@ -191,9 +167,29 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 	printf("Could not create edge_event_buffer for the event\n");
 	return -1;
     }
+    curr_event->line_values = malloc(sizeof(unsigned int) * lines_num);
+    if(!(curr_event->line_values)){
+	printf("Failed to malloc line_values array for the event\n");
+	return -1;
+    }
+    curr_event->final_values = malloc(sizeof(unsigned char) * control_num);
+    if(!(curr_event->final_values)){
+	printf("Failed to malloc final_values array for the event\n");
+	return -1;
+    }
+    curr_event->final_values_last = malloc(sizeof(unsigned char) * control_num);
+    if(!(curr_event->final_values_last)){
+	printf("Failed to malloc final_values_last for the event\n");
+	return -1;
+    }
+    memset(curr_event->line_values, 0, sizeof(unsigned int) * lines_num);
+    memset(curr_event->final_values, 0, sizeof(unsigned char) * control_num);
+    memset(curr_event->final_values_last, 0, sizeof(unsigned char) * control_num);
+        
     return 0;
 }
-
+//initiate the PINKBD_GPIO_COMM struct,
+//encoder_lines - pin numbers for encoders, dont forget that one encoder has two pins, so this array is in pairs
 static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** const chip_paths,
 				     const unsigned int* encoder_lines, unsigned int num_of_encoders, const unsigned int* encoder_chip_nums,
 				     const unsigned int* button_lines, unsigned int num_of_buttons, const unsigned int* button_chip_nums){
@@ -202,11 +198,7 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
     if(num_of_chips <= 0)return NULL;
     if(!chip_paths)return NULL;
     //initialize to 0
-    pinKbd_obj->encoders = NULL;
-    pinKbd_obj->buttons = NULL;
     pinKbd_obj->pin_events = NULL;
-    pinKbd_obj->num_of_encoders = 0;
-    pinKbd_obj->num_of_buttons = 0;
     pinKbd_obj->num_of_pin_events = 0;
     
     pinKbd_obj->num_of_chips = num_of_chips;
@@ -224,57 +216,6 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	    pinKbd_clean(NULL, pinKbd_obj);
 	    return NULL;
 	}
-    }
-    //initiate the encoders
-    if(num_of_encoders > 0){
-	pinKbd_obj->num_of_encoders = num_of_encoders;
-	pinKbd_obj->encoders = malloc(sizeof(PINKBD_ENCODER*) * num_of_encoders);
-	if(!(pinKbd_obj->encoders)){
-	    printf("Could not create the encoders array\n");
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}
-    }
-    unsigned int get_enc_line = 0;
-    for(int i = 0; i < num_of_encoders; i++){
-	PINKBD_ENCODER* curr_enc = malloc(sizeof(PINKBD_ENCODER));
-	unsigned int curr_chip_num = encoder_chip_nums[i];	
-	if(!curr_enc || curr_chip_num >= pinKbd_obj->num_of_chips){
-	    printf("Could not create the %d encoder or the chip number for this encoder exceeds the num_of_chips\n", i);
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}
-	pinKbd_obj->encoders[i] = curr_enc;
-	curr_enc->chip = pinKbd_obj->chips[curr_chip_num];
-	curr_enc->lines[0] = encoder_lines[get_enc_line];
-	curr_enc->lines[1] = encoder_lines[get_enc_line + 1];
-	curr_enc->curr_edge_0 = 0;
-	curr_enc->curr_edge_1 = 0;
-	curr_enc->final_num = 0;
-	curr_enc->final_num_last = 0;
-	get_enc_line += 2;
-    }
-    //initiate the buttons
-    if(num_of_buttons > 0){
-	pinKbd_obj->num_of_buttons = num_of_buttons;
-	pinKbd_obj->buttons = malloc(sizeof(PINKBD_BUTTON*) * num_of_buttons);
-	if(!(pinKbd_obj->buttons)){
-	    printf("Could not create the buttons array\n");
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}	
-    }
-    for(int i = 0; i < num_of_buttons; i++){
-	PINKBD_BUTTON* curr_btn = malloc(sizeof(PINKBD_BUTTON));
-	unsigned int curr_chip_num = button_chip_nums[i];	
-	if(!curr_btn || curr_chip_num >= pinKbd_obj->num_of_chips){
-	    printf("Could not create the %d button or the chip number for this encoder exceeds the num_of_chips\n", i);
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}
-	pinKbd_obj->buttons[i] = curr_btn;
-	curr_btn->chip = pinKbd_obj->chips[curr_chip_num];
-	curr_btn->line = button_lines[i];
     }
 
     //Create the event structs
@@ -300,11 +241,9 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	    return NULL;
 	}
 	//go through encoders
-	unsigned int encoders_lines_iterator = 0; //encoders have to pin numbers so increase this +2 when an encoder is found
-	for(int enc_i = 0; enc_i < pinKbd_obj->num_of_encoders; enc_i++){
-	    PINKBD_ENCODER* curr_enc = pinKbd_obj->encoders[enc_i];
-	    if(!curr_enc)continue;
-	    if(curr_enc->chip == curr_chip){
+	unsigned int encoders_lines_iterator = 0; //encoders have two pin numbers so increase this +2 when an encoder is found
+	for(int enc_i = 0; enc_i < num_of_encoders; enc_i++){
+	    if(encoder_chip_nums[enc_i] == i){
 		chip_in_encoders_num += 1;
 		encoders_lines_for_req = realloc(encoders_lines_for_req, sizeof(unsigned int) * (chip_in_encoders_num * 2));
 		if(!encoders_lines_for_req){
@@ -312,16 +251,14 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 		    pinKbd_clean(NULL, pinKbd_obj);
 		    return NULL;
 		}
-		encoders_lines_for_req[encoders_lines_iterator] = curr_enc->lines[0];
-		encoders_lines_for_req[encoders_lines_iterator + 1] = curr_enc->lines[1];
+		encoders_lines_for_req[encoders_lines_iterator] = encoder_lines[enc_i * 2];
+		encoders_lines_for_req[encoders_lines_iterator + 1] = encoder_lines[(enc_i * 2) + 1];
 		encoders_lines_iterator += 2;
 	    }
 	}
 	//go through the buttons
-	for(int btn_i = 0; btn_i < pinKbd_obj->num_of_buttons; btn_i++){
-	    PINKBD_BUTTON* curr_btn = pinKbd_obj->buttons[btn_i];
-	    if(!curr_btn)continue;
-	    if(curr_btn->chip == curr_chip){
+	for(int btn_i = 0; btn_i < num_of_buttons; btn_i++){
+	    if(button_chip_nums[btn_i] == i){
 		chip_in_btns_num += 1;
 		btns_lines_for_req = realloc(btns_lines_for_req, sizeof(unsigned int) * (chip_in_btns_num));
 		if(!btns_lines_for_req){
@@ -329,13 +266,13 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 		    pinKbd_clean(NULL, pinKbd_obj);
 		    return NULL;		    
 		}
-		btns_lines_for_req[chip_in_btns_num - 1] = curr_btn->line;
+		btns_lines_for_req[chip_in_btns_num - 1] = button_lines[btn_i];
 	    }
 	}
 	//if there where encoders with this chip create request, event etc.
 	if(chip_in_encoders_num > 0 && encoders_lines_for_req){
 	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, "pinKbd_line_watch", 0, 0) == -1){
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, chip_in_encoders_num, "pinKbd_line_watch", 0, 0) == -1){
 		pinKbd_clean(NULL, pinKbd_obj);
 		return NULL;
 	    }
@@ -343,7 +280,7 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	//if there where buttons with this chip create request, event etc.
 	if(chip_in_btns_num > 0 && btns_lines_for_req){
 	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, "pinKbd_line_watch", 0, 0) == -1){
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 0) == -1){
 		pinKbd_clean(NULL, pinKbd_obj);
 		return NULL;
 	    }	    
@@ -353,9 +290,40 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	if(chip_in_btns_num <= 0)
 	    free(btns_lines_for_req);
     }
+    if(num_of_events <= 0)
+	free(pinKbd_obj->pin_events);
     pinKbd_obj->num_of_pin_events = num_of_events;
     printf("Created %d events \n", pinKbd_obj->num_of_pin_events);
     return pinKbd_obj;
+}
+
+//update all encoder and button values
+//first checks if any events happened at all, if yes goes through proper processes for encoders and buttons
+static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj){
+    if(!pinKbd_obj)return -1;
+    if(!(pinKbd_obj->pin_events))return -1;
+    if(pinKbd_obj->num_of_pin_events <= 0) return -1;
+
+    for(int i = 0; i < pinKbd_obj->num_of_pin_events; i++){
+	PINKBD_EVENT* curr_event = pinKbd_obj->pin_events[i];
+	if(!curr_event)continue;
+	if(!(curr_event->event_request))continue;
+	//if event happened
+	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 0)){
+	    //this function blocks until there is an event this is why first call the gpiod_line_request_wait_edge_events with 0ms
+	    int ret = gpiod_line_request_read_edge_events(curr_event->event_request, curr_event->edge_event_buffer, curr_event->num_of_watched_lines);
+	    if(ret > 0){
+		for(int ev_i = 0; ev_i < ret; ev_i++){
+		    struct gpiod_edge_event* event = gpiod_edge_event_buffer_get_event(curr_event->edge_event_buffer, ev_i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event);
+		    unsigned int type = gpiod_edge_event_get_event_type(event);
+		    unsigned int type_ = 0;
+		    if(type == 1) type_ = 1;
+		    printf("Offset %d type_ %d\n", offset, type_);
+		}
+	    }
+	}
+    }
 }
 
 int main(){
@@ -364,7 +332,9 @@ int main(){
     struct sigaction sig_action;
     memset(&sig_action, 0, sizeof(struct sigaction));
     sig_action.sa_handler = term;
+    sigaction(SIGINT, &sig_action, NULL);
     sigaction(SIGTERM, &sig_action, NULL);
+    
     //----------------------------------
 
     //Initiate the uinput setup
@@ -412,7 +382,7 @@ int main(){
     //Initiate the gpio
     //---------------------------------------------------
     PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"}, (const unsigned int[4]){6,7,8,9}, 2,
-					       (const unsigned int[2]){1,1}, (const unsigned int[2]){23,24}, 1, (const unsigned int[2]){0, 0});
+					       (const unsigned int[2]){1,1}, (const unsigned int[2]){23,24}, 2, (const unsigned int[2]){0, 0});
     if(!pinKbd_obj){
 	pinKbd_clean(&fd, NULL);
 	return -1;
@@ -435,6 +405,7 @@ int main(){
     */
     //-----------------------------------------
     while(!done){
+	pinKbd_update_values(pinKbd_obj);
 	//TODO only for testing, should emit only when encoder or button is used
 	/*
 	emit(fd, EV_KEY, KEY_1, 1);
