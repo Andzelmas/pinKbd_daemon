@@ -266,7 +266,8 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
     ioctl(fd, UI_SET_KEYBIT, KEY_H);
     ioctl(fd, UI_SET_KEYBIT, KEY_LEFTMETA);
     ioctl(fd, UI_SET_KEYBIT, KEY_UP);
-    ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);    
+    ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);
+    ioctl(fd, UI_SET_KEYBIT, KEY_ENTER);
     
     memset(&usetup, 0, sizeof(usetup));
     usetup.id.bustype = BUS_USB;
@@ -697,7 +698,14 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 		    }
 		    break;
 		case 8:
-		    //TODO scrollbar encoder button has no shortcut as of now
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_ENTER, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_ENTER, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
 		    break;
 		case 9:
 		    if(control_value == 0){
