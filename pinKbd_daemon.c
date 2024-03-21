@@ -16,6 +16,8 @@
 #define PISOUND_BUT_NUM_LINES 17
 //how many lines to read from the Raspberry Pi for buttons
 #define RPI_BUT_NUM_LINES 5
+//for button to register a push the timestamp difference of the values must be this or greater
+#define DEBOUNCE_NS 20000000
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -39,6 +41,8 @@ typedef struct _pinKbd_EVENT{
     unsigned int* line_values; //the current values of the watched lines, dont forget encoder has lines in pairs
     unsigned char* final_values; //final values for encoders (one value per encoder), if final_value == 180 encoder CW, if 120 - CCW
     unsigned char* final_values_last; //final values for encoders that where last time of checking, for comparing with final_values, to update a tick only when the value changed
+    uint64_t* line_timestamps; //timestamps of the line value writting, useful for button debouncing
+    int* intrf_value; //values for lines that are used by the interface
     unsigned int num_of_watched_lines; //how many lines are watched by this event
     struct gpiod_edge_event_buffer* edge_event_buffer; //the buffer that has the line events, its size should be equal to num_of_watched_lines
     unsigned int watch_buttons; //if == 1 this event watches buttons, otherwise - encoders. usefull when there is an event in the buffer and its
@@ -48,6 +52,7 @@ typedef struct _pinKbd_EVENT{
 
 //struct that holds all of the gpio communication
 typedef struct _pinKbd_GPIO_COMM{
+    int uinput_fd;
     struct gpiod_chip** chips;
     unsigned int num_of_chips;
     //the events that watch the lines asigned to them
@@ -56,11 +61,11 @@ typedef struct _pinKbd_GPIO_COMM{
 }PINKBD_GPIO_COMM;
 
 //clean everything function
-static void pinKbd_clean(int* uinput_fd, PINKBD_GPIO_COMM* pinKbd_obj){
+static void pinKbd_clean(PINKBD_GPIO_COMM* pinKbd_obj){
     //clean the uinput emmiter
-    if(uinput_fd){
-	ioctl(*uinput_fd, UI_DEV_DESTROY);
-	close(*uinput_fd);
+    if(pinKbd_obj->uinput_fd){
+	ioctl(pinKbd_obj->uinput_fd, UI_DEV_DESTROY);
+	close(pinKbd_obj->uinput_fd);
     }
     
     if(!pinKbd_obj)return;
@@ -85,6 +90,8 @@ static void pinKbd_clean(int* uinput_fd, PINKBD_GPIO_COMM* pinKbd_obj){
 	    if(curr_event->line_values)free(curr_event->line_values);
 	    if(curr_event->final_values)free(curr_event->final_values);
 	    if(curr_event->final_values_last)free(curr_event->final_values_last);
+	    if(curr_event->line_timestamps)free(curr_event->line_timestamps);
+	    if(curr_event->intrf_value)free(curr_event->intrf_value);
 	    free(curr_event);
 	}
 	free(pinKbd_obj->pin_events);
@@ -197,10 +204,21 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 	printf("Failed to malloc final_values_last for the event\n");
 	return -1;
     }
-    memset(curr_event->line_values, 0, sizeof(unsigned int) * lines_num);
-    memset(curr_event->final_values, 0, sizeof(unsigned char) * control_num);
-    memset(curr_event->final_values_last, 0, sizeof(unsigned char) * control_num);
-        
+    curr_event->line_timestamps = malloc(sizeof(uint64_t) * control_num);
+    if(!(curr_event->line_timestamps)){
+	printf("Failed to malloc line_timestamps for the event\n");
+	return -1;
+    }
+    curr_event->intrf_value = malloc(sizeof(int) * control_num);
+    if(!(curr_event->intrf_value)){
+	printf("Failed to malloc intrf_value for the event\n");
+	return -1;
+    }      
+    memset(curr_event->line_values, 1, sizeof(unsigned int) * lines_num);
+    memset(curr_event->final_values, 1, sizeof(unsigned char) * control_num);
+    memset(curr_event->final_values_last, 1, sizeof(unsigned char) * control_num);
+    memset(curr_event->line_timestamps, 0, sizeof(uint64_t) * control_num);
+    memset(curr_event->intrf_value, 0, sizeof(int) * control_num);
     return 0;
 }
 //initiate the PINKBD_GPIO_COMM struct,
@@ -210,184 +228,17 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 				     const unsigned int* button_lines, unsigned int num_of_buttons, const unsigned int* button_chip_nums){
     PINKBD_GPIO_COMM* pinKbd_obj = malloc(sizeof(PINKBD_GPIO_COMM));
     if(!pinKbd_obj)return NULL;
-    if(num_of_chips <= 0)return NULL;
-    if(!chip_paths)return NULL;
-    //initialize to 0
-    pinKbd_obj->pin_events = NULL;
-    pinKbd_obj->num_of_pin_events = 0;
     
-    pinKbd_obj->num_of_chips = num_of_chips;
-    pinKbd_obj->chips = malloc(sizeof(struct gpiod_chip*) * num_of_chips);
-    if(!(pinKbd_obj->chips)){
-	printf("Could not create the chip array\n");
-	pinKbd_clean(NULL, pinKbd_obj);
-	return NULL;
-    }
-    //initiate the gpio chips on the struct
-    for(int i = 0; i<num_of_chips; i++){
-	pinKbd_obj->chips[i] = gpiod_chip_open(chip_paths[i]);
-	if(!(pinKbd_obj->chips[i])){
-	    printf("Could not create the %s chip\n",chip_paths[i]);
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}
-    }
-
-    //Create the event structs
-    //First go through the chips and for each one go through the encoders and buttons of that chip
-    //When found an encoder or a button for the chip add its lines to the offset array from which to create the gpiod_line_request
-    unsigned int num_of_events = 0;
-    pinKbd_obj->pin_events = malloc(sizeof(PINKBD_EVENT*));
-    if(!(pinKbd_obj->pin_events)){
-	printf("Could not malloc pin_events \n");
-	pinKbd_clean(NULL, pinKbd_obj);
-	return NULL;
-    }
-    for(int i = 0; i < pinKbd_obj->num_of_chips; i++){
-	struct gpiod_chip* curr_chip = pinKbd_obj->chips[i];
-	if(!curr_chip)continue;
-	unsigned int chip_in_encoders_num = 0; //how many encoders are on this chip
-	unsigned int chip_in_btns_num = 0; //how many buttons are on this chip
-	unsigned int* encoders_lines_for_req = malloc(sizeof(unsigned int)); //array with the line numbers for the encoders for this chip
-	unsigned int* btns_lines_for_req = malloc(sizeof(unsigned int)); //array with the line numbers for the buttons for this chip
-	if(!encoders_lines_for_req || !btns_lines_for_req){
-	    printf("Failed events initialization \n");
-	    pinKbd_clean(NULL, pinKbd_obj);
-	    return NULL;
-	}
-	//go through encoders
-	unsigned int encoders_lines_iterator = 0; //encoders have two pin numbers so increase this +2 when an encoder is found
-	for(int enc_i = 0; enc_i < num_of_encoders; enc_i++){
-	    if(encoder_chip_nums[enc_i] == i){
-		chip_in_encoders_num += 1;
-		encoders_lines_for_req = realloc(encoders_lines_for_req, sizeof(unsigned int) * (chip_in_encoders_num * 2));
-		if(!encoders_lines_for_req){
-		    printf("Failed events initialization - could not realloc encoders_lines \n");
-		    pinKbd_clean(NULL, pinKbd_obj);
-		    return NULL;
-		}
-		encoders_lines_for_req[encoders_lines_iterator] = encoder_lines[enc_i * 2];
-		encoders_lines_for_req[encoders_lines_iterator + 1] = encoder_lines[(enc_i * 2) + 1];
-		encoders_lines_iterator += 2;
-	    }
-	}
-	//go through the buttons
-	for(int btn_i = 0; btn_i < num_of_buttons; btn_i++){
-	    if(button_chip_nums[btn_i] == i){
-		chip_in_btns_num += 1;
-		btns_lines_for_req = realloc(btns_lines_for_req, sizeof(unsigned int) * (chip_in_btns_num));
-		if(!btns_lines_for_req){
-		    printf("Failed events initialization - could not realloc btns_lines \n");
-		    pinKbd_clean(NULL, pinKbd_obj);
-		    return NULL;		    
-		}
-		btns_lines_for_req[chip_in_btns_num - 1] = button_lines[btn_i];
-	    }
-	}
-	//if there where encoders with this chip create request, event etc.
-	if(chip_in_encoders_num > 0 && encoders_lines_for_req){
-	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, chip_in_encoders_num, "pinKbd_line_watch", 0, 0) == -1){
-		pinKbd_clean(NULL, pinKbd_obj);
-		return NULL;
-	    }
-	}
-	//if there where buttons with this chip create request, event etc.
-	if(chip_in_btns_num > 0 && btns_lines_for_req){
-	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 1) == -1){
-		pinKbd_clean(NULL, pinKbd_obj);
-		return NULL;
-	    }	    
-	}
-	if(chip_in_encoders_num <= 0)
-	    free(encoders_lines_for_req);
-	if(chip_in_btns_num <= 0)
-	    free(btns_lines_for_req);
-    }
-    if(num_of_events <= 0)
-	free(pinKbd_obj->pin_events);
-    pinKbd_obj->num_of_pin_events = num_of_events;
-    printf("Created %d events \n", pinKbd_obj->num_of_pin_events);
-    return pinKbd_obj;
-}
-
-//update all encoder and button values
-//first checks if any events happened at all, if yes goes through proper processes for encoders and buttons
-static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj){
-    if(!pinKbd_obj)return -1;
-    if(!(pinKbd_obj->pin_events))return -1;
-    if(pinKbd_obj->num_of_pin_events <= 0) return -1;
-
-    for(int i = 0; i < pinKbd_obj->num_of_pin_events; i++){
-	PINKBD_EVENT* curr_event = pinKbd_obj->pin_events[i];
-	if(!curr_event)continue;
-	if(!(curr_event->event_request))continue;
-	//if event happened
-	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 0)){
-	    //this function blocks until there is an event this is why first call the gpiod_line_request_wait_edge_events with 0ms
-	    int ret = gpiod_line_request_read_edge_events(curr_event->event_request, curr_event->edge_event_buffer, curr_event->num_of_watched_lines);
-	    if(ret > 0){
-		for(int ev_i = 0; ev_i < ret; ev_i++){
-		    struct gpiod_edge_event* event = gpiod_edge_event_buffer_get_event(curr_event->edge_event_buffer, ev_i);
-		    unsigned int offset = gpiod_edge_event_get_line_offset(event);
-		    unsigned int type = gpiod_edge_event_get_event_type(event);
-		    unsigned int type_ = 0;
-		    if(type == 1) type_ = 1;
-		    //find which button or encoder
-		    int line_idx = -1;
-		    for(int ln_i = 0; ln_i < curr_event->num_of_watched_lines; ln_i++){
-			unsigned int curr_line = curr_event->watched_lines[ln_i];
-			if(curr_line == offset){
-			    line_idx = ln_i;
-			    break;
-			}
-		    }
-		    if(line_idx == -1){
-			printf("line not found in event watched lines\n");
-			continue;
-		    }
-		    //if this is an encoder, get the encoder number from the line index (since there are two lines per encoder)
-		    if(curr_event->watch_buttons == 0){
-			if(line_idx%2 != 0)line_idx -= 1;
-			line_idx *= 0.5;
-		    }
-		    //TODO update line_values for encoders and buttons
-		    //TODO for encoders do the bitwise operations and update in which direction a tick happened, will need a variable on event to store this info
-		    //TODO these rotations will accumulate +1 for CW and -1 for CCW
-		    //TODO new function pinKbd_invoke() will go through encoders and buttons and depending on the values and which encoder or button invoked
-		    //will call an action (like emmit keyboard). Then this function will make the value 0. This way can control sensitivity - for example dont
-		    //invoke until an encoder has +2 or -2 rotation (so two ticks in any direction). For buttons will need to watch the last and current value
-		    //if they are the same do nothing if they changed do something (emmit keyboard) and change the last value to current. This way for buttons
-		    //do something only when the button value changes - no need to emmit non stop 1 calls when the button is pushed, emmit 1 when pushed and
-		    //0 when released.
-		    //TODO still need to think where and how to debounce buttons
-		    printf("Offset %d type_ %d\n", offset, type_);
-		    if(curr_event->watch_buttons)
-			printf("%d event is for a button %d in chip %d\n", i, line_idx, curr_event->chip_num);
-		    if(!curr_event->watch_buttons)
-			printf("%d event is for an encoder %d in chip %d\n", i, line_idx, curr_event->chip_num);
-		}
-	    }
-	}
-    }
-}
-
-int main(){
-    //Initiate struct for SIGTERM handling
-    //----------------------------------
-    struct sigaction sig_action;
-    memset(&sig_action, 0, sizeof(struct sigaction));
-    sig_action.sa_handler = term;
-    sigaction(SIGINT, &sig_action, NULL);
-    sigaction(SIGTERM, &sig_action, NULL);
-    
-    //----------------------------------
-
     //Initiate the uinput setup
     //-----------------------------------
+    pinKbd_obj->uinput_fd = 0;
     struct uinput_setup usetup;
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    if(!fd){
+	printf("Could not open file to emmit the keyboard events\n");
+	pinKbd_clean(pinKbd_obj);
+	return NULL;
+    }
     //initiate the virtual device for emmiting the keypresses
     ioctl(fd, UI_SET_EVBIT, EV_KEY);
     //TODO What keys to use should be sourced from a file, where user can configure what
@@ -414,7 +265,8 @@ int main(){
     ioctl(fd, UI_SET_KEYBIT, KEY_G);
     ioctl(fd, UI_SET_KEYBIT, KEY_H);
     ioctl(fd, UI_SET_KEYBIT, KEY_LEFTMETA);
-    ioctl(fd, UI_SET_KEYBIT, KEY_A);
+    ioctl(fd, UI_SET_KEYBIT, KEY_EQUAL);
+    ioctl(fd, UI_SET_KEYBIT, KEY_MINUS);    
     
     memset(&usetup, 0, sizeof(usetup));
     usetup.id.bustype = BUS_USB;
@@ -424,6 +276,634 @@ int main(){
 
     ioctl(fd, UI_DEV_SETUP, &usetup);
     ioctl(fd, UI_DEV_CREATE);
+    pinKbd_obj->uinput_fd = fd;
+    //---------------------------------------------------------
+    if(num_of_chips <= 0)return NULL;
+    if(!chip_paths)return NULL;
+    //initialize to 0
+    pinKbd_obj->pin_events = NULL;
+    pinKbd_obj->num_of_pin_events = 0;
+    
+    pinKbd_obj->num_of_chips = num_of_chips;
+    pinKbd_obj->chips = malloc(sizeof(struct gpiod_chip*) * num_of_chips);
+    if(!(pinKbd_obj->chips)){
+	printf("Could not create the chip array\n");
+	pinKbd_clean(pinKbd_obj);
+	return NULL;
+    }
+    //initiate the gpio chips on the struct
+    for(int i = 0; i<num_of_chips; i++){
+	pinKbd_obj->chips[i] = gpiod_chip_open(chip_paths[i]);
+	if(!(pinKbd_obj->chips[i])){
+	    printf("Could not create the %s chip\n",chip_paths[i]);
+	    pinKbd_clean(pinKbd_obj);
+	    return NULL;
+	}
+    }
+
+    //Create the event structs
+    //First go through the chips and for each one go through the encoders and buttons of that chip
+    //When found an encoder or a button for the chip add its lines to the offset array from which to create the gpiod_line_request
+    unsigned int num_of_events = 0;
+    pinKbd_obj->pin_events = malloc(sizeof(PINKBD_EVENT*));
+    if(!(pinKbd_obj->pin_events)){
+	printf("Could not malloc pin_events \n");
+	pinKbd_clean(pinKbd_obj);
+	return NULL;
+    }
+    for(int i = 0; i < pinKbd_obj->num_of_chips; i++){
+	struct gpiod_chip* curr_chip = pinKbd_obj->chips[i];
+	if(!curr_chip)continue;
+	unsigned int chip_in_encoders_num = 0; //how many encoders are on this chip
+	unsigned int chip_in_btns_num = 0; //how many buttons are on this chip
+	unsigned int* encoders_lines_for_req = malloc(sizeof(unsigned int)); //array with the line numbers for the encoders for this chip
+	unsigned int* btns_lines_for_req = malloc(sizeof(unsigned int)); //array with the line numbers for the buttons for this chip
+	if(!encoders_lines_for_req || !btns_lines_for_req){
+	    printf("Failed events initialization \n");
+	    pinKbd_clean(pinKbd_obj);
+	    return NULL;
+	}
+	//go through encoders
+	unsigned int encoders_lines_iterator = 0; //encoders have two pin numbers so increase this +2 when an encoder is found
+	for(int enc_i = 0; enc_i < num_of_encoders; enc_i++){
+	    if(encoder_chip_nums[enc_i] == i){
+		chip_in_encoders_num += 1;
+		encoders_lines_for_req = realloc(encoders_lines_for_req, sizeof(unsigned int) * (chip_in_encoders_num * 2));
+		if(!encoders_lines_for_req){
+		    printf("Failed events initialization - could not realloc encoders_lines \n");
+		    pinKbd_clean(pinKbd_obj);
+		    return NULL;
+		}
+		encoders_lines_for_req[encoders_lines_iterator] = encoder_lines[enc_i * 2];
+		encoders_lines_for_req[encoders_lines_iterator + 1] = encoder_lines[(enc_i * 2) + 1];
+		encoders_lines_iterator += 2;
+	    }
+	}
+	//go through the buttons
+	for(int btn_i = 0; btn_i < num_of_buttons; btn_i++){
+	    if(button_chip_nums[btn_i] == i){
+		chip_in_btns_num += 1;
+		btns_lines_for_req = realloc(btns_lines_for_req, sizeof(unsigned int) * (chip_in_btns_num));
+		if(!btns_lines_for_req){
+		    printf("Failed events initialization - could not realloc btns_lines \n");
+		    pinKbd_clean(pinKbd_obj);
+		    return NULL;		    
+		}
+		btns_lines_for_req[chip_in_btns_num - 1] = button_lines[btn_i];
+	    }
+	}
+	//if there where encoders with this chip create request, event etc.
+	if(chip_in_encoders_num > 0 && encoders_lines_for_req){
+	    num_of_events += 1;
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, chip_in_encoders_num, "pinKbd_line_watch", 0, 0) == -1){
+		pinKbd_clean(pinKbd_obj);
+		return NULL;
+	    }
+	}
+	//if there where buttons with this chip create request, event etc.
+	if(chip_in_btns_num > 0 && btns_lines_for_req){
+	    num_of_events += 1;
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 1) == -1){
+		pinKbd_clean(pinKbd_obj);
+		return NULL;
+	    }	    
+	}
+	if(chip_in_encoders_num <= 0)
+	    free(encoders_lines_for_req);
+	if(chip_in_btns_num <= 0)
+	    free(btns_lines_for_req);
+    }
+    if(num_of_events <= 0)
+	free(pinKbd_obj->pin_events);
+    pinKbd_obj->num_of_pin_events = num_of_events;
+    printf("Created %d events \n", pinKbd_obj->num_of_pin_events);
+    return pinKbd_obj;
+}
+//chip_num - on what chip the encoder or button was activated
+//control_num - the number of encoder or button on the chip
+//control_value - the value of the control, 0 - for button release, 1 - push, 1 - for encoder CW rotation, -1 for CCW
+//inc_mult how many times the events should be invoked
+static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip_num, unsigned int control_num, int control_value, unsigned int inc_mult, unsigned int button){
+    if(!pinKbd_obj)return -1;
+    int fd = pinKbd_obj->uinput_fd;
+    if(!fd)return -1;
+    if(inc_mult <= 0) return -1;
+    //TODO these cases should be cleanedup and implemented a system which finds the control_num in a conf file and finds the corresponding keypress it should emmit
+    //on key press and key realese, or in case of encoders what it should on CW and CCW ticks
+    for(int i = 0; i < inc_mult; i++){
+	if(chip_num == 0){
+	    if(button == 1){
+		switch(control_num){
+		case 0:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_W, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_W, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 1:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_E, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_E, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 2:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_R, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_R, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 3:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_T, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_T, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 4:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_Y, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_Y, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		}
+	    }
+	    
+	}
+
+	if(chip_num == 1){
+	    //encoders on chip 1
+	    if(button == 0){
+		switch(control_num){
+		case 0:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_1, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_1, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 1:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_2, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_2, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 2:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_3, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_3, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 3:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_4, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_4, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 4:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_5, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_5, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 5:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_6, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_6, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 6:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_7, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_7, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 7:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_8, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_LEFTALT, 1);
+			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTALT, 0);
+			emit(fd, EV_KEY, KEY_8, 0);			
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 8:
+		    if(control_value > 0){
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);			
+		    }
+		    if(control_value < 0){
+			emit(fd, EV_KEY, KEY_MINUS, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);		
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;		    
+		}		
+	    }
+	    //buttons on chip 1
+	    else if(button == 1){
+		switch(control_num){
+		case 0:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_1, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 1:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_2, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 2:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_3, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 3:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_4, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 4:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_5, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 5:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_6, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 6:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_7, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 7:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_8, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 8:
+		    //TODO scrollbar encoder button has no shortcut as of now
+		    break;
+		case 9:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_Q, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_Q, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 10:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_LEFTMETA, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_LEFTMETA, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 11:
+		    //TODO the bottom of the three buttons does not have any emmit right now
+		    //the idea was to use this as a shift (for example while holding to increase/decrease values faster etc.)
+		    //actual shift would not work, now reserved A
+		    break;
+		case 12:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_S, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_S, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 13:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_D, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_D, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 14:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_F, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_F, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 15:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_G, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_G, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;
+		case 16:
+		    if(control_value == 0){
+			emit(fd, EV_KEY, KEY_H, 1);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    if(control_value == 1){
+			emit(fd, EV_KEY, KEY_H, 0);
+			emit(fd, EV_SYN, SYN_REPORT, 0);
+		    }
+		    break;	
+		}		
+	    }
+	}
+    }
+
+    return 0;
+}
+
+//update all encoder and button values
+//first checks if any events happened at all, if yes goes through proper processes for encoders and buttons
+//enc_sens - encoder sensitivity, the encoder must accumulate this many positive (for CW) or negative (for CCW) events to invoke its function
+static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_sens){
+    if(!pinKbd_obj)return -1;
+    if(!(pinKbd_obj->pin_events))return -1;
+    if(pinKbd_obj->num_of_pin_events <= 0) return -1;
+
+    for(int i = 0; i < pinKbd_obj->num_of_pin_events; i++){
+	PINKBD_EVENT* curr_event = pinKbd_obj->pin_events[i];
+	if(!curr_event)continue;
+	if(!(curr_event->event_request))continue;
+	//if event happened
+	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 0)){
+	    //this function blocks until there is an event this is why first call the gpiod_line_request_wait_edge_events with 0ms
+	    int ret = gpiod_line_request_read_edge_events(curr_event->event_request, curr_event->edge_event_buffer, curr_event->num_of_watched_lines);
+	    if(ret > 0){
+		for(int ev_i = 0; ev_i < ret; ev_i++){
+		    struct gpiod_edge_event* event = gpiod_edge_event_buffer_get_event(curr_event->edge_event_buffer, ev_i);
+		    unsigned int offset = gpiod_edge_event_get_line_offset(event);
+		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event);
+		    unsigned int type = gpiod_edge_event_get_event_type(event);
+		    unsigned int type_ = 0;
+		    if(type == 1) type_ = 1;
+		    //find which button or encoder
+		    int line_idx = -1;
+		    for(int ln_i = 0; ln_i < curr_event->num_of_watched_lines; ln_i++){
+			unsigned int curr_line = curr_event->watched_lines[ln_i];
+			if(curr_line == offset){
+			    line_idx = ln_i;
+			    break;
+			}
+		    }
+		    if(line_idx == -1){
+			printf("line not found in event watched lines\n");
+			continue;
+		    }
+		    unsigned int control_num = line_idx; //encoder or button index
+		    //if this is an encoder, get the encoder number (since there are two lines per encoder)
+		    if(curr_event->watch_buttons == 0){
+			if(control_num%2 != 0)control_num -= 1;
+			control_num *= 0.5;
+		    }
+		    //update line_values for encoders and buttons
+		    //but only if the type_is different from the one saved
+		    if(curr_event->line_values[line_idx] != type_){
+			curr_event->line_values[line_idx] = type_;
+			//update the final_values
+			//for encoders we need to set first_val_idx and the second line idx value, since pins are in pairs for encoders
+			if(curr_event->watch_buttons == 0){
+			    unsigned int first_val_idx = line_idx;
+			    unsigned int second_val_idx = line_idx + 1;
+			    if(line_idx%2 != 0){
+				first_val_idx = line_idx - 1;
+				second_val_idx = line_idx;
+			    }
+			    curr_event->final_values[control_num] = curr_event->final_values[control_num] << 1;
+			    curr_event->final_values[control_num] = curr_event->final_values[control_num] | curr_event->line_values[first_val_idx];
+			    curr_event->final_values[control_num] = curr_event->final_values[control_num] << 1;
+			    curr_event->final_values[control_num] = curr_event->final_values[control_num] | curr_event->line_values[second_val_idx];
+			}
+			//for buttons final_value will be the type_, if sufficient time has passed after the last event, to prevent bounce
+			else if(curr_event->watch_buttons == 1){
+			    uint64_t last_timestamp = curr_event->line_timestamps[control_num];
+			    if(abs(timestamp - last_timestamp) >= DEBOUNCE_NS){
+				curr_event->final_values[control_num] = type_;
+			    }
+			}
+		    }
+		    //check the final value
+		    unsigned char final_val = curr_event->final_values[control_num];
+		    unsigned int changed_val = 0;
+		    if(final_val != curr_event->final_values_last[control_num]){
+			//do for encoders
+			if(curr_event->watch_buttons == 0){
+			    if(final_val == 180 || final_val == 210 || final_val == 75 || final_val == 45){
+				curr_event->intrf_value[control_num] += 1;
+				changed_val = 1;
+			    }
+
+			    if(final_val == 120 || final_val == 225 || final_val == 135 || final_val == 30){
+				curr_event->intrf_value[control_num] -= 1;
+				changed_val = 1;
+			    }
+			    if(changed_val ==1){
+				curr_event->line_timestamps[control_num] = timestamp;
+				if(abs(curr_event->intrf_value[control_num]) >= enc_sens){
+				    pinKbd_invoke_control(pinKbd_obj, curr_event->chip_num, control_num, curr_event->intrf_value[control_num],
+							  abs(curr_event->intrf_value[control_num])/enc_sens, 0);
+				    curr_event->intrf_value[control_num] = 0;
+				}
+			    }
+			}
+			//do for buttons
+			else if(curr_event->watch_buttons == 1){
+			    curr_event->intrf_value[control_num] += 1;
+			    if(curr_event->intrf_value[control_num] > 0){
+				pinKbd_invoke_control(pinKbd_obj, curr_event->chip_num, control_num, curr_event->final_values[control_num], 1, 1);
+				curr_event->intrf_value[control_num] = 0;
+			    }
+			    changed_val = 1;
+			    curr_event->line_timestamps[control_num] = timestamp;
+			}
+			curr_event->final_values_last[control_num] = final_val;
+		    }
+		}
+	    }
+	}
+    }
+}
+
+int main(){
+    //Initiate struct for SIGTERM handling
+    //----------------------------------
+    struct sigaction sig_action;
+    memset(&sig_action, 0, sizeof(struct sigaction));
+    sig_action.sa_handler = term;
+    sigaction(SIGINT, &sig_action, NULL);
+    sigaction(SIGTERM, &sig_action, NULL);
+    
     //---------------------------------------------
 
     //Initiate the gpio
@@ -434,12 +914,11 @@ int main(){
 					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,33,34,35,0,1,2,3,4,17,27,22,23,24}, 22,
 					       (const unsigned int[22]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0});
     if(!pinKbd_obj){
-	pinKbd_clean(&fd, NULL);
 	return -1;
     }
     
     while(!done){
-	pinKbd_update_values(pinKbd_obj);
+	pinKbd_update_values(pinKbd_obj, 4);
 	//TODO only for testing, should emit only when encoder or button is used
 	/*
 	emit(fd, EV_KEY, KEY_1, 1);
@@ -447,95 +926,10 @@ int main(){
 	emit(fd, EV_KEY, KEY_1, 0);
 	emit(fd, EV_SYN, SYN_REPORT, 0);
 	*/
-	//TODO need a wrap function for all of this
-/*
-	if(gpiod_line_request_wait_edge_events(pisound_encoders_req, 0)){
-	    int ret = gpiod_line_request_read_edge_events(pisound_encoders_req, event_encoders_buffer, event_encoders_buf_size);
-	    if(ret > 0){
-		for(int i = 0; i < ret; i++){
-		    event_encoder = gpiod_edge_event_buffer_get_event(event_encoders_buffer, i);
-		    unsigned int offset = gpiod_edge_event_get_line_offset(event_encoder);
-		    unsigned int type = gpiod_edge_event_get_event_type(event_encoder);
-		    unsigned int type_ = 0;
-		    if(type == 1) type_ = 1;
-		    if(offset % 2 == 0){
-			if(type_ != c_A){
-			    c_A = type_;
-			    //printf("offset %d type %d type %d\n", offset, c_A, c_B);
-			    final_num = final_num << 1;
-			    final_num = final_num | c_A;
-			    final_num = final_num << 1;
-			    final_num = final_num | c_B;
-			}
-		    }
-		    else{
-			if(type_ != c_B){
-			    c_B = type_;
-			    //printf("offset %d type %d type %d\n", offset, c_A, c_B);
-			    final_num = final_num << 1;
-			    final_num = final_num | c_A;
-			    final_num = final_num << 1;
-			    final_num = final_num | c_B;
-			}
-		    }
-		}
-		if(final_num_last != final_num){
-		    if(final_num == 180) enc_count += 1;
-		    if(final_num == 120) enc_count -= 1;
-		    if(enc_count >= 1){
-			printf("CW Rotation \n");
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);			
-			emit(fd, EV_KEY, KEY_1, 1);
-			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_1, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);			
-			emit(fd, EV_SYN, SYN_REPORT, 0);
-			enc_count = 0;
-		    }
-		    if(enc_count <= -1){
-			printf("CCW Rotation \n");
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);			
-			emit(fd, EV_KEY, KEY_1, 1);
-			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_1, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);			
-			emit(fd, EV_SYN, SYN_REPORT, 0);			
-			enc_count = 0;
-		    }
-		    final_num_last = final_num;
-		}
- 	    }
-
-	}
-	if(gpiod_line_request_wait_edge_events(pisound_buttons_req, 0)){
-	    int ret = gpiod_line_request_read_edge_events(pisound_buttons_req, event_but_buffer, event_but_buf_size);
-	    if(ret > 0){
-		for(int i = 0; i < ret; i++){
-		    event_but = gpiod_edge_event_buffer_get_event(event_but_buffer, i);
-		    unsigned int offset = gpiod_edge_event_get_line_offset(event_but);
-		    unsigned int type = gpiod_edge_event_get_event_type(event_but);
-		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_but);
-		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
-		}
-	    }	    
-	}
-	if(gpiod_line_request_wait_edge_events(rpi_buttons_req, 0)){
-	    int ret = gpiod_line_request_read_edge_events(rpi_buttons_req, event_rpi_but_buffer, event_rpi_but_buf_size);
-	    if(ret > 0){
-		for(int i = 0; i < ret; i++){
-		    event_rpi_but = gpiod_edge_event_buffer_get_event(event_rpi_but_buffer, i);
-		    unsigned int offset = gpiod_edge_event_get_line_offset(event_rpi_but);
-		    unsigned int type = gpiod_edge_event_get_event_type(event_rpi_but);
-		    uint64_t timestamp = gpiod_edge_event_get_timestamp_ns(event_rpi_but);
-		    printf("Line %d type %d timestamp %" PRIu64 "\n", offset, type, timestamp);
-		}
-	    }
-	}
-*/
     }
     
     //clean everything here
-    pinKbd_clean(&fd, pinKbd_obj);
+    pinKbd_clean(pinKbd_obj);
 
     printf("the pinKbd service is shutting down\n");
     return 0;
