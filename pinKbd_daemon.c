@@ -265,8 +265,8 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
     ioctl(fd, UI_SET_KEYBIT, KEY_G);
     ioctl(fd, UI_SET_KEYBIT, KEY_H);
     ioctl(fd, UI_SET_KEYBIT, KEY_LEFTMETA);
-    ioctl(fd, UI_SET_KEYBIT, KEY_EQUAL);
-    ioctl(fd, UI_SET_KEYBIT, KEY_MINUS);    
+    ioctl(fd, UI_SET_KEYBIT, KEY_UP);
+    ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);    
     
     memset(&usetup, 0, sizeof(usetup));
     usetup.id.bustype = BUS_USB;
@@ -599,17 +599,15 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 		    break;
 		case 8:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
-			emit(fd, EV_KEY, KEY_EQUAL, 1);
+			emit(fd, EV_KEY, KEY_UP, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_EQUAL, 0);
+			emit(fd, EV_KEY, KEY_UP, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_MINUS, 1);
+			emit(fd, EV_KEY, KEY_DOWN, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_MINUS, 0);		
+			emit(fd, EV_KEY, KEY_DOWN, 0);		
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;		    
