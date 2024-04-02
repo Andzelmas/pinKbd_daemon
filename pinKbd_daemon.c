@@ -803,7 +803,7 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 	if(!curr_event)continue;
 	if(!(curr_event->event_request))continue;
 	//if event happened
-	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 0)){
+	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 100000)){
 	    //this function blocks until there is an event this is why first call the gpiod_line_request_wait_edge_events with 0ms
 	    int ret = gpiod_line_request_read_edge_events(curr_event->event_request, curr_event->edge_event_buffer, curr_event->num_of_watched_lines);
 	    if(ret > 0){
@@ -925,13 +925,6 @@ int main(){
     
     while(!done){
 	pinKbd_update_values(pinKbd_obj, 4);
-	//TODO only for testing, should emit only when encoder or button is used
-	/*
-	emit(fd, EV_KEY, KEY_1, 1);
-	emit(fd, EV_SYN, SYN_REPORT, 0);
-	emit(fd, EV_KEY, KEY_1, 0);
-	emit(fd, EV_SYN, SYN_REPORT, 0);
-	*/
     }
     
     //clean everything here
