@@ -16,8 +16,11 @@
 #define PISOUND_BUT_NUM_LINES 17
 //how many lines to read from the Raspberry Pi for buttons
 #define RPI_BUT_NUM_LINES 5
-//for button to register a push the timestamp difference of the values must be this or greater
+//for button to register a push the timestamp difference of the values must be this ns or greater
 #define DEBOUNCE_NS 20000000
+//the timeout for the gpiod wait line request function (in nanoseconds)
+#define GPIODWAIT_TIMEOUT 500000
+
 //var and function to catch SIGTERM when the program is killed
 volatile sig_atomic_t done = 0;
 static void term(int signum){
@@ -802,8 +805,10 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 	PINKBD_EVENT* curr_event = pinKbd_obj->pin_events[i];
 	if(!curr_event)continue;
 	if(!(curr_event->event_request))continue;
+	int req_test = 0;
+	req_test = gpiod_line_request_wait_edge_events(curr_event->event_request, GPIODWAIT_TIMEOUT);
 	//if event happened
-	if(gpiod_line_request_wait_edge_events(curr_event->event_request, 100000)){
+	if(req_test == 1){
 	    //this function blocks until there is an event this is why first call the gpiod_line_request_wait_edge_events with 0ms
 	    int ret = gpiod_line_request_read_edge_events(curr_event->event_request, curr_event->edge_event_buffer, curr_event->num_of_watched_lines);
 	    if(ret > 0){
@@ -930,6 +935,6 @@ int main(){
     //clean everything here
     pinKbd_clean(pinKbd_obj);
 
-    printf("the pinKbd service is shutting down\n");
+    printf("pinKbd_dameon shutting down, done cleanup\n");
     return 0;
 }

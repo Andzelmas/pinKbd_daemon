@@ -4,6 +4,6 @@ Description="Service that monitors Pisound-Micro pin information and converts th
 [Service]
 Type=simple
 ExecStart=sudo pinKbd_daemon
-
+KillMode=process
 [Install]
 WantedBy=default.target
