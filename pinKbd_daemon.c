@@ -254,9 +254,10 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
     ioctl(fd, UI_SET_KEYBIT, KEY_6);
     ioctl(fd, UI_SET_KEYBIT, KEY_7);
     ioctl(fd, UI_SET_KEYBIT, KEY_8);
-    ioctl(fd, UI_SET_KEYBIT, KEY_LEFTSHIFT);
-    ioctl(fd, UI_SET_KEYBIT, KEY_LEFTALT);
-    ioctl(fd, UI_SET_KEYBIT, KEY_Q);
+    ioctl(fd, UI_SET_KEYBIT, KEY_EQUAL);
+    ioctl(fd, UI_SET_KEYBIT, KEY_MINUS);
+    ioctl(fd, UI_SET_KEYBIT, KEY_RIGHT);
+    ioctl(fd, UI_SET_KEYBIT, KEY_LEFT);
     ioctl(fd, UI_SET_KEYBIT, KEY_W);
     ioctl(fd, UI_SET_KEYBIT, KEY_E);
     ioctl(fd, UI_SET_KEYBIT, KEY_R);
@@ -458,146 +459,146 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 	    if(button == 0){
 		switch(control_num){
 		case 0:
-		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
+		    if(control_value > 0){			
 			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_1, 0);			
+			emit(fd, EV_KEY, KEY_1, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_1, 0);			
+			emit(fd, EV_KEY, KEY_1, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 1:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_2, 0);			
+			emit(fd, EV_KEY, KEY_2, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_2, 0);			
+			emit(fd, EV_KEY, KEY_2, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 2:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_3, 0);			
+			emit(fd, EV_KEY, KEY_3, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_3, 0);			
+			emit(fd, EV_KEY, KEY_3, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 3:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_4, 0);			
+			emit(fd, EV_KEY, KEY_4, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_4, 0);			
+			emit(fd, EV_KEY, KEY_4, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 4:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_5, 0);			
+			emit(fd, EV_KEY, KEY_5, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_5, 0);			
+			emit(fd, EV_KEY, KEY_5, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 5:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_6, 0);			
+			emit(fd, EV_KEY, KEY_6, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_6, 0);			
+			emit(fd, EV_KEY, KEY_6, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 6:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_7, 0);			
+			emit(fd, EV_KEY, KEY_7, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_7, 0);			
+			emit(fd, EV_KEY, KEY_7, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 7:
 		    if(control_value > 0){
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 1);
 			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_KEY, KEY_EQUAL, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTSHIFT, 0);
-			emit(fd, EV_KEY, KEY_8, 0);			
+			emit(fd, EV_KEY, KEY_8, 0);
+			emit(fd, EV_KEY, KEY_EQUAL, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);			
 		    }
 		    if(control_value < 0){
-			emit(fd, EV_KEY, KEY_LEFTALT, 1);
 			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_KEY, KEY_MINUS, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
-			emit(fd, EV_KEY, KEY_LEFTALT, 0);
-			emit(fd, EV_KEY, KEY_8, 0);			
+			emit(fd, EV_KEY, KEY_8, 0);
+			emit(fd, EV_KEY, KEY_MINUS, 0);			
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
@@ -623,80 +624,96 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 		case 0:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_1, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_1, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 1:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_2, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_2, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 2:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_3, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_3, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 3:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_4, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_4, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 4:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_5, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_5, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 5:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_6, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_6, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 6:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_7, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_7, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
 		case 7:
 		    if(control_value == 0){
 			emit(fd, EV_KEY, KEY_8, 1);
+			emit(fd, EV_KEY, KEY_RIGHT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
 			emit(fd, EV_KEY, KEY_8, 0);
+			emit(fd, EV_KEY, KEY_RIGHT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
@@ -712,11 +729,11 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 		    break;
 		case 9:
 		    if(control_value == 0){
-			emit(fd, EV_KEY, KEY_Q, 1);
+			emit(fd, EV_KEY, KEY_LEFT, 1);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    if(control_value == 1){
-			emit(fd, EV_KEY, KEY_Q, 0);
+			emit(fd, EV_KEY, KEY_LEFT, 0);
 			emit(fd, EV_SYN, SYN_REPORT, 0);
 		    }
 		    break;
