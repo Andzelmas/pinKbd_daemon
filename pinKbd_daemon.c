@@ -939,7 +939,7 @@ int main(){
     PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"},
 					       (const unsigned int[18]){6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}, 9,
 					       (const unsigned int[18]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,33,34,35,0,1,2,3,4,17,27,22,23,24}, 22,
+					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,34,35,36,0,3,2,4,5,24,23,22,27,17}, 22,
 					       (const unsigned int[22]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0});
     if(!pinKbd_obj){
 	return -1;
