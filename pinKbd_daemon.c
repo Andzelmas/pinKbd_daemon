@@ -10,6 +10,7 @@
 #include <gpiod.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <dirent.h>
 //how many lines to read from pisound gpio for encoders
 #define PISOUND_ENC_NUM_LINES 18
 //how many lines to read from pisound gpio for buttons
@@ -922,6 +923,71 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 	}
     }
 }
+//filter the paths that are chip paths, copied from libgpiod tools-common.h
+static int chip_dir_filter(const struct dirent *entry)
+{
+	struct stat sb;
+	int ret = 0;
+	char *path;
+	unsigned int path_len = strlen(entry->d_name)+6;
+	path = malloc(sizeof(char)*path_len);
+	if(!path)return 0;
+	snprintf(path, path_len, "/dev/%s", entry->d_name);
+
+	if ((lstat(path, &sb) == 0) && (!S_ISLNK(sb.st_mode)) &&
+	    gpiod_is_gpiochip_device(path))
+		ret = 1;
+
+	free(path);
+
+	return ret;
+}
+//clean the return dirent struct
+static void dirent_clean_dirents(unsigned int num, struct dirent **entries){
+    if(num <= 0)return;
+    for(int j = 0; j < num; j++){
+	free(entries[j]);
+    }
+    free(entries);
+}
+//returns path in /dev/ of the chip with chip_label, altered from libgpiod tools-common.h
+static char* pinKbd_return_path_from_label(const char* chip_label){
+    char* ret_path = NULL;
+    int num_chips = 0;
+    struct dirent **entries;
+    num_chips = scandir("/dev/", &entries, chip_dir_filter, alphasort);
+    if(num_chips < 0)return NULL;
+
+    for(int i = 0; i < num_chips; i++){
+	unsigned int path_len = strlen(entries[i]->d_name)+6;
+	char* chip_path = malloc(sizeof(char)*path_len);
+	if(!chip_path)continue;
+	snprintf(chip_path, path_len, "/dev/%s", entries[i]->d_name);
+	struct gpiod_chip* cur_chip = gpiod_chip_open(chip_path);
+	if(!cur_chip){
+	    free(chip_path);
+	    continue;
+	}
+	struct gpiod_chip_info* info = gpiod_chip_get_info(cur_chip);
+	if(!info){
+	    free(chip_path);
+	    gpiod_chip_close(cur_chip);
+	    continue;
+	}
+	
+	if(strcmp(gpiod_chip_info_get_label(info), chip_label) == 0){
+	    ret_path = chip_path;
+	    gpiod_chip_info_free(info);
+	    gpiod_chip_close(cur_chip);
+	    break;
+	}
+	free(chip_path);
+	gpiod_chip_info_free(info);
+	gpiod_chip_close(cur_chip);
+    }
+    dirent_clean_dirents(num_chips, entries);
+    return ret_path;
+}
 
 int main(){
     //Initiate struct for SIGTERM handling
@@ -933,14 +999,30 @@ int main(){
     sigaction(SIGTERM, &sig_action, NULL);
     
     //---------------------------------------------
-
+    //TODO the labels should be in a config file along with lines for buttons and encoders
+    //find chip path from a label
+    char* chip_rpi_path = pinKbd_return_path_from_label("pinctrl-bcm2711");
+    if(!chip_rpi_path){
+	printf("could not find raspberry chip \n");
+	return -1;
+    }
+    char* chip_pisound_path = pinKbd_return_path_from_label("pisound-micro-gpio");
+    if(!chip_pisound_path){
+	printf("could not find pisound chip path \n");
+	if(chip_rpi_path)free(chip_rpi_path);
+	return -1;
+    }
+    //TODO again, the lines for buttons and encoders should be in a config file
     //Initiate the gpio
     //---------------------------------------------------
-    PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){"/dev/gpiochip0", "/dev/gpiochip2"},
+    PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){chip_rpi_path, chip_pisound_path},
 					       (const unsigned int[18]){6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}, 9,
 					       (const unsigned int[18]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
 					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,34,35,36,0,3,2,4,5,24,23,22,27,17}, 22,
 					       (const unsigned int[22]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0});
+    free(chip_rpi_path);
+    free(chip_pisound_path);
+    
     if(!pinKbd_obj){
 	return -1;
     }
