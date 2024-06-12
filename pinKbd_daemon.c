@@ -12,6 +12,8 @@
 #include <inttypes.h>
 #include <dirent.h>
 #include <json-c/json.h>
+//size of the single buffer read, when reading a file to buffer
+#define JSONFILESIZE 1024
 //how many lines to read from pisound gpio for encoders
 #define PISOUND_ENC_NUM_LINES 18
 //how many lines to read from pisound gpio for buttons
@@ -989,6 +991,44 @@ static char* pinKbd_return_path_from_label(const char* chip_label){
     dirent_clean_dirents(num_chips, entries);
     return ret_path;
 }
+//read a file_path to a string
+static char* app_json_read_to_buffer(const char* file_path){
+    char* ret_string = NULL;
+    FILE* fp;
+    fp = fopen(file_path, "r");
+    if(!fp){
+	return ret_string;
+    }
+
+    ret_string = (char*)malloc(sizeof(char)*JSONFILESIZE+1);
+    if(!ret_string){
+	goto clean;		
+    }
+    size_t read_num = fread(ret_string, sizeof(char), JSONFILESIZE, fp);
+    int total_read = read_num;
+
+    char* temp_string = NULL;
+    while(read_num>=JSONFILESIZE){
+	temp_string = realloc(ret_string, (total_read+read_num)*sizeof(char)+1);
+	if(!temp_string){
+	    goto clean;
+	}
+	ret_string = temp_string;
+	read_num = fread(ret_string+total_read, sizeof(char), JSONFILESIZE, fp);
+	total_read+=read_num;	 
+    }
+    temp_string = realloc(ret_string, total_read*sizeof(char)+1);
+    //dont forget the null terminator
+    temp_string[total_read] = '\0';
+    if(!temp_string){
+	goto clean;
+    }
+    ret_string = temp_string;
+
+clean:
+    if(fp)fclose(fp);
+    return ret_string;
+}
 
 //make a json_object from a file_path
 static struct json_object* app_json_tokenise_path(char* file_path){
@@ -997,13 +1037,11 @@ static struct json_object* app_json_tokenise_path(char* file_path){
     
     buffer = app_json_read_to_buffer(file_path);
     if(!buffer){
-	log_append_logfile("Cant read from the %s file\n", file_path);
 	return NULL;
     }
     parsed_fp = json_tokener_parse(buffer);
     free(buffer);
     if(!parsed_fp){
-	log_append_logfile("Cant parse the json file %s\n", file_path);
 	return NULL;
     }
 
