@@ -3,7 +3,7 @@ CC=gcc
 #name of the binary filename
 FILE=pinKbd_daemon
 #additional libraries
-LIBS=-lgpiod
+LIBS=-lgpiod -ljson-c
 MAIN_SRC=pinKbd_daemon.c
 
 #Remote dir for the source code
