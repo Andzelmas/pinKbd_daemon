@@ -6,7 +6,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <gpiod.h>
 #include <unistd.h>
 #include <inttypes.h>
