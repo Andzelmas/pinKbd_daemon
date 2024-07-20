@@ -1,0 +1,7 @@
+{
+    "chipname":"pinctrl-bcm2711":{
+	"encoder":{
+	    "lines":[6, 7]
+	}
+    }
+}

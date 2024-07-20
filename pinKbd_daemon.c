@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <dirent.h>
-#include <json-c/json.h>
+#include "util_funcs/json_funcs.h"
 //size of the single buffer read, when reading a file to buffer
 #define JSONFILESIZE 1024
 //how many lines to read from pisound gpio for encoders
@@ -227,6 +227,12 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
     memset(curr_event->intrf_value, 0, sizeof(int) * control_num);
     return 0;
 }
+//initialize the PINKBD_GPIO_COMM struct from json config file
+static void pinKbd_init_from_config(const char* config_path){
+    JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
+    JSONHANDLE* chip = app_json_iterate_and_find_obj(parsed_fp, "chipname");
+}
+
 //initiate the PINKBD_GPIO_COMM struct,
 //encoder_lines - pin numbers for encoders, dont forget that one encoder has two pins, so this array is in pairs
 static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** const chip_paths,
@@ -991,118 +997,6 @@ static char* pinKbd_return_path_from_label(const char* chip_label){
     return ret_path;
 }
 
-
-//--------------------------------------------------
-//JSON funcs
-typedef void JSONHANDLE; //void handle for json object, solater these functions can be made into a lib
-//read a file_path to a string
-static char* app_json_read_to_buffer(const char* file_path){
-    char* ret_string = NULL;
-    FILE* fp;
-    fp = fopen(file_path, "r");
-    if(!fp){
-	return ret_string;
-    }
-
-    ret_string = (char*)malloc(sizeof(char)*JSONFILESIZE+1);
-    if(!ret_string){
-	goto clean;		
-    }
-    size_t read_num = fread(ret_string, sizeof(char), JSONFILESIZE, fp);
-    int total_read = read_num;
-
-    char* temp_string = NULL;
-    while(read_num>=JSONFILESIZE){
-	temp_string = realloc(ret_string, (total_read+read_num)*sizeof(char)+1);
-	if(!temp_string){
-	    goto clean;
-	}
-	ret_string = temp_string;
-	read_num = fread(ret_string+total_read, sizeof(char), JSONFILESIZE, fp);
-	total_read+=read_num;	 
-    }
-    temp_string = realloc(ret_string, total_read*sizeof(char)+1);
-    //dont forget the null terminator
-    temp_string[total_read] = '\0';
-    if(!temp_string){
-	goto clean;
-    }
-    ret_string = temp_string;
-
-clean:
-    if(fp)fclose(fp);
-    return ret_string;
-}
-
-//make a json_object from a file_path
-static JSONHANDLE* app_json_tokenise_path(char* file_path){
-    char* buffer = NULL;
-    struct json_object* parsed_fp = NULL;
-    
-    buffer = app_json_read_to_buffer(file_path);
-    if(!buffer){
-	return NULL;
-    }
-    parsed_fp = json_tokener_parse(buffer);
-    free(buffer);
-    if(!parsed_fp){
-	return NULL;
-    }
-
-    return (JSONHANDLE*)parsed_fp;
-}
-
-//iterate json file and run proc_func for each json object that is not json_type_object (so a string, array, int etc.)
-//proc_func can use the found_json_obj to do something with that object data
-static int app_json_iterate_objs_run_callback(JSONHANDLE* in_handle,
-				       const char* json_name, const char* json_parent, const char* top_name,
-				       void* arg,
-				       void(*proc_func)(void*, const char* js_name, const char* parent_name,
-							const char* top_node_name, JSONHANDLE* found_handle)){
-    struct json_object* parsed_fp = (struct json_object*) in_handle;
-
-    int return_val = 0;
-
-    if(!parsed_fp){
-	return -1;
-    }
-    //iterate through the parsed_fp
-    struct json_object_iterator it;
-    struct json_object_iterator itEnd;
-
-    it = json_object_iter_begin(parsed_fp);
-    itEnd = json_object_iter_end(parsed_fp);
-    
-    unsigned int iter = 0;
-    while (!json_object_iter_equal(&it, &itEnd)) {
-	const char* cur_name =  json_object_iter_peek_name(&it);
-	struct json_object* rec_obj = NULL;
-	rec_obj = json_object_iter_peek_value(&it);
-	if(json_object_get_type(rec_obj)!=json_type_object && json_object_get_type(rec_obj)!=json_type_null){
-	    iter+=1;
-	    (*proc_func)(arg, json_name, json_parent, top_name, (JSONHANDLE*)rec_obj);
-	}
-	json_object_iter_next(&it);
-    }
-    //now go through the objects inside this json object
-    //and call this function recursevily
-    it = json_object_iter_begin(parsed_fp);
-    while(!json_object_iter_equal(&it, &itEnd)){
-	const char* cur_name =  json_object_iter_peek_name(&it);	
-	struct json_object* rec_obj = NULL;
-	const char* parent_name = json_name;
-	if(iter<=0)parent_name = json_parent;
-	rec_obj = json_object_iter_peek_value(&it);
-	if(json_object_get_type(rec_obj)==json_type_object)
-	    app_json_iterate_objs_run_callback((JSONHANDLE*)rec_obj, cur_name, parent_name, top_name,
-					  arg, (*proc_func));
-	json_object_iter_next(&it);
-    }
-    
-    return return_val;
-}
-//--------------------------------------------------
-
 int main(){
     //Initiate struct for SIGTERM handling
     //----------------------------------
@@ -1111,6 +1005,12 @@ int main(){
     sig_action.sa_handler = term;
     sigaction(SIGINT, &sig_action, NULL);
     sigaction(SIGTERM, &sig_action, NULL);
+    
+    //TODO not implemented yet
+    //use the config file to setup the pins
+    pinKbd_init_from_config("pin_config.json");
+    //return for testing
+    return 0;
     
     //---------------------------------------------
     //TODO the labels should be in a config file along with lines for buttons and encoders
@@ -1126,6 +1026,7 @@ int main(){
 	if(chip_rpi_path)free(chip_rpi_path);
 	return -1;
     }
+
     //TODO again, the lines for buttons and encoders should be in a config file
     //Initiate the gpio
     //---------------------------------------------------

@@ -4,7 +4,8 @@ CC=gcc
 FILE=pinKbd_daemon
 #additional libraries
 LIBS=-lgpiod -ljson-c
-MAIN_SRC=pinKbd_daemon.c
+SRC=util_funcs/json_funcs.c
+MAIN_SRC=pinKbd_daemon.c $(SRC)
 
 #Remote dir for the source code
 PI_DIR = ~/Audio/Source/pinKbd_daemon/
