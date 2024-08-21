@@ -1010,7 +1010,7 @@ int main(){
     //use the config file to setup the pins
     pinKbd_init_from_config("pin_config.json");
     //return for testing
-    return 0;
+    //return 0;
     
     //---------------------------------------------
     //TODO the labels should be in a config file along with lines for buttons and encoders
@@ -1031,9 +1031,9 @@ int main(){
     //Initiate the gpio
     //---------------------------------------------------
     PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init(2, (const char*[2]){chip_rpi_path, chip_pisound_path},
-					       (const unsigned int[18]){6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}, 9,
+					       (const unsigned int[18]){21,20,19,18,17,16,10,11,12,13,14,15,7,6,9,8,24,27}, 9,
 					       (const unsigned int[18]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-					       (const unsigned int[22]){24,25,26,27,28,29,30,31,32,34,35,36,0,3,2,4,5,24,23,22,27,17}, 22,
+					       (const unsigned int[22]){32,30,31,26,29,28,23,22,25,36,35,34,4,2,5,0,3,24,17,22,23,27}, 22,
 					       (const unsigned int[22]){1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0});
     free(chip_rpi_path);
     free(chip_pisound_path);
