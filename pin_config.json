@@ -1,7 +1,50 @@
 {
+    "chipname":"pisound-micro-gpio":{
+	"line":{
+	    "debounce":0,
+	    "line_num":21,
+	    "keys":["KEY_1","KEY_EQUAL"]
+	},
+	"line":{
+	    "debounce":0,
+	    "line_num":20,
+	    "keys":["KEY_1", "KEY_MINUS"]
+	},
+	
+	"line":{
+	    "debounce":0,
+	    "line_num":19,
+	    "keys":["KEY_2","KEY_EQUAL"]		
+	},
+	"line":{
+	    "debounce":0,
+	    "line_num":18,
+	    "keys":["KEY_2","KEY_MINUS"]
+	},
+	
+	"line":{
+	    "debounce":1,
+	    "line_num":32,
+	    "keys":["KEY_1", "KEY_RIGHT"]
+	},
+	
+	"line":{
+	    "debounce":1,
+	    "line_num":30,
+	    "keys":["KEY_2", "KEY_RIGHT"]
+	}
+    },
     "chipname":"pinctrl-bcm2711":{
-	"encoder":{
-	    "lines":[6, 7]
+	"line":{
+	    "debounce":1,
+	    "line_num":24,
+	    "keys":["KEY_W"]
+	},
+	
+	"line":{
+	    "debounce":1,
+	    "line_num":17,
+	    "keys":["KEY_E"]
 	}
     }
 }
