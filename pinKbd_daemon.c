@@ -230,7 +230,31 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 //initialize the PINKBD_GPIO_COMM struct from json config file
 static void pinKbd_init_from_config(const char* config_path){
     JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
-    JSONHANDLE* chip = app_json_iterate_and_find_obj(parsed_fp, "chipname");
+    JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
+    unsigned int chips_size = 0;
+    int err_chips = app_json_iterate_and_find_obj(parsed_fp, "chipname", &chips, &chips_size);
+    
+    for(int i = 0; i < chips_size; i++){
+	JSONHANDLE* cur_chipname = chips[i];
+
+	JSONHANDLE* chipname_parent = app_json_iterate_and_return_parent(parsed_fp, cur_chipname);
+
+	JSONHANDLE** lines = malloc(sizeof(JSONHANDLE*));
+	unsigned int lines_size = 0;
+	app_json_iterate_and_find_obj(chipname_parent, "line_num", &lines, &lines_size);
+	
+	for(int j = 0; j < lines_size; j++){
+	    JSONHANDLE* cur_line = lines[j];
+	    JSONHANDLE* line_parent = app_json_iterate_and_return_parent(parsed_fp, cur_line);
+	    JSONHANDLE* parent_of_line_parent = app_json_iterate_and_return_parent(parsed_fp, line_parent);
+	    app_json_print_name(parent_of_line_parent);
+	}
+	
+	if(lines)free(lines);
+    }
+    
+    if(parsed_fp)app_json_clean_object(parsed_fp);
+    if(chips)free(chips);
 }
 
 //initiate the PINKBD_GPIO_COMM struct,
@@ -1010,7 +1034,7 @@ int main(){
     //use the config file to setup the pins
     pinKbd_init_from_config("pin_config.json");
     //return for testing
-    //return 0;
+    return 0;
     
     //---------------------------------------------
     //TODO the labels should be in a config file along with lines for buttons and encoders

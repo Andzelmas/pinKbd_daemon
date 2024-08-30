@@ -48,10 +48,44 @@ clean:
     if(fp)fclose(fp);
     return ret_string;
 }
-
-JSONHANDLE* app_json_iterate_and_find_obj(JSONHANDLE* in_handle, const char* find_key){
+//TODO only for debuging for now
+void app_json_print_name(JSONHANDLE* in_handle){
     struct json_object* parsed_fp = (struct json_object*)in_handle;
-    if(!parsed_fp)goto clean;
+    if(!parsed_fp)return;
+    printf("name %s \n", json_object_to_json_string(parsed_fp));
+}
+
+JSONHANDLE* app_json_iterate_and_return_parent(JSONHANDLE* in_handle, JSONHANDLE* child){
+    struct json_object* parsed_fp = (struct json_object*)in_handle;
+    if(!parsed_fp)return NULL;
+    struct json_object* child_fp = (struct json_object*)child;
+    if(!child_fp)return NULL;
+
+    //iterate through the parsed_fp
+    struct json_object_iterator it;
+    struct json_object_iterator itEnd;
+    it = json_object_iter_begin(parsed_fp);
+    itEnd = json_object_iter_end(parsed_fp);
+    while (!json_object_iter_equal(&it, &itEnd)) {
+	struct json_object* rec_obj = NULL;
+	rec_obj = json_object_iter_peek_value(&it);
+	if(json_object_equal(child_fp,rec_obj)==1){	    
+	    return (JSONHANDLE*)parsed_fp;
+	}
+	if(json_object_get_type(rec_obj)==json_type_object){
+	    JSONHANDLE* parent = app_json_iterate_and_return_parent((JSONHANDLE*)rec_obj, child);
+	    if(parent)return parent;
+	}	
+	json_object_iter_next(&it);
+    }
+
+    return NULL;
+}
+
+int app_json_iterate_and_find_obj(JSONHANDLE* in_handle, const char* find_name, JSONHANDLE*** objs, unsigned int* objs_size){
+    struct json_object* parsed_fp = (struct json_object*)in_handle;
+    if(!parsed_fp)return -1;
+    if(!(*objs))return -1;
     
     struct json_object* ret_obj = NULL;
     
@@ -61,27 +95,27 @@ JSONHANDLE* app_json_iterate_and_find_obj(JSONHANDLE* in_handle, const char* fin
 
     it = json_object_iter_begin(parsed_fp);
     itEnd = json_object_iter_end(parsed_fp);
-    
     while (!json_object_iter_equal(&it, &itEnd)) {
-	if(strcmp(json_object_iter_peek_name(&it), find_key)==0){
-	    
+	if(strcmp(json_object_iter_peek_name(&it), find_name)==0){	    
 	    ret_obj = json_object_iter_peek_value(&it);
-	    goto clean;
+	    unsigned int cur_size = *objs_size;
+	    JSONHANDLE** new_objs = realloc(*objs, sizeof(JSONHANDLE*) * (cur_size + 1));
+	    if(!new_objs && *objs_size > 0)return -2;
+	    if(!new_objs) return -1;
+	    new_objs[cur_size] = ret_obj;
+	    *objs = new_objs;
+	    *objs_size += 1;
 	}
 	struct json_object* rec_obj = NULL;
 	rec_obj = json_object_iter_peek_value(&it);
-	
 	if(json_object_get_type(rec_obj)==json_type_object){
-	    ret_obj = app_json_iterate_and_find_obj(rec_obj, find_key);
-	    if(ret_obj)goto clean;
+	    int err = app_json_iterate_and_find_obj(rec_obj, find_name, objs, objs_size);
+	    if(err < 0)return err;
 	}
-
 	json_object_iter_next(&it);
     }
-    
-    
-clean:
-    return (JSONHANDLE*)ret_obj;
+
+    return 0;
 }
 
 int app_json_iterate_objs_run_callback(JSONHANDLE* in_handle,
@@ -144,11 +178,13 @@ JSONHANDLE* app_json_tokenise_path(const char* file_path){
     
     buffer = app_json_read_to_buffer(file_path);
     if(!buffer){
+	printf("no such path %s \n", file_path);
 	return NULL;
     }
     parsed_fp = json_tokener_parse(buffer);
     free(buffer);
     if(!parsed_fp){
+	printf("could not tokenize %s \n", file_path);
 	return NULL;
     }
 
