@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <dirent.h>
 #include "util_funcs/json_funcs.h"
+#include "util_funcs/emmit_funcs.h"
 //size of the single buffer read, when reading a file to buffer
 #define JSONFILESIZE 1024
 //how many lines to read from pisound gpio for encoders
@@ -229,6 +230,8 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 }
 //initialize the PINKBD_GPIO_COMM struct from json config file
 static void pinKbd_init_from_config(const char* config_path){
+    int code = app_emmit_convert_to_enum("BTN_TRIGGER_HAPPY39");
+    if(code != -1) printf("code %d\n", code);
     JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
     JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
     unsigned int chips_size = 0;

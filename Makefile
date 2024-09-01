@@ -4,7 +4,7 @@ CC=gcc
 FILE=pinKbd_daemon
 #additional libraries
 LIBS=-lgpiod -ljson-c
-SRC=util_funcs/json_funcs.c
+SRC=util_funcs/json_funcs.c util_funcs/emmit_funcs.c
 MAIN_SRC=pinKbd_daemon.c $(SRC)
 
 #Remote dir for the source code
