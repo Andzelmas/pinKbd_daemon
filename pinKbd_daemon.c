@@ -2,12 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
-#include <linux/uinput.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <gpiod.h>
-#include <unistd.h>
 #include <inttypes.h>
 #include <dirent.h>
 #include "util_funcs/json_funcs.h"
@@ -30,17 +27,7 @@ volatile sig_atomic_t done = 0;
 static void term(int signum){
     done = 1;
 }
-//function that writes bits to the fd to simulate a keypress
-static void emit(int fd, int type, int code, int val){
-    struct input_event ie;
-    ie.type = type;
-    ie.code = code;
-    ie.value = val;
-    ie.time.tv_sec = 0;
-    ie.time.tv_usec = 0;
 
-    write(fd, &ie, sizeof(ie));
-}
 //event struct that holds gpiod request with lines to watch and gpiod event and event buffers
 typedef struct _pinKbd_EVENT{
     struct gpiod_line_request* event_request;
@@ -69,11 +56,7 @@ typedef struct _pinKbd_GPIO_COMM{
 
 //clean everything function
 static void pinKbd_clean(PINKBD_GPIO_COMM* pinKbd_obj){
-    //clean the uinput emmiter
-    if(pinKbd_obj->uinput_fd){
-	ioctl(pinKbd_obj->uinput_fd, UI_DEV_DESTROY);
-	close(pinKbd_obj->uinput_fd);
-    }
+    app_emmit_clean(pinKbd_obj->uinput_fd);
     
     if(!pinKbd_obj)return;
 
@@ -230,8 +213,11 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 }
 //initialize the PINKBD_GPIO_COMM struct from json config file
 static void pinKbd_init_from_config(const char* config_path){
-    int code = app_emmit_convert_to_enum("BTN_TRIGGER_HAPPY39");
-    if(code != -1) printf("code %d\n", code);
+    //TODO here should call app_emmit_init_input
+    //TODO first will need to convert the keypress shortcuts from string to int and store them as structs per line
+    //so the control_num in the invoke_control function will get the corresponding keypress shortcut struct in the array and use
+    //the app_emmit_emmit_keypress function to emmit the keypress (keybits will be an array on the keypress shortcut struct)
+    
     JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
     JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
     unsigned int chips_size = 0;
@@ -268,56 +254,6 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
     PINKBD_GPIO_COMM* pinKbd_obj = malloc(sizeof(PINKBD_GPIO_COMM));
     if(!pinKbd_obj)return NULL;
     
-    //Initiate the uinput setup
-    //-----------------------------------
-    pinKbd_obj->uinput_fd = 0;
-    struct uinput_setup usetup;
-    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if(!fd){
-	printf("Could not open file to emmit the keyboard events\n");
-	pinKbd_clean(pinKbd_obj);
-	return NULL;
-    }
-    //initiate the virtual device for emmiting the keypresses
-    ioctl(fd, UI_SET_EVBIT, EV_KEY);
-    //TODO What keys to use should be sourced from a file, where user can configure what
-    //encoders and buttons produce what keypresses. If no such file just use these as defaults
-    ioctl(fd, UI_SET_KEYBIT, KEY_1);
-    ioctl(fd, UI_SET_KEYBIT, KEY_2);
-    ioctl(fd, UI_SET_KEYBIT, KEY_3);
-    ioctl(fd, UI_SET_KEYBIT, KEY_4);
-    ioctl(fd, UI_SET_KEYBIT, KEY_5);
-    ioctl(fd, UI_SET_KEYBIT, KEY_6);
-    ioctl(fd, UI_SET_KEYBIT, KEY_7);
-    ioctl(fd, UI_SET_KEYBIT, KEY_8);
-    ioctl(fd, UI_SET_KEYBIT, KEY_EQUAL);
-    ioctl(fd, UI_SET_KEYBIT, KEY_MINUS);
-    ioctl(fd, UI_SET_KEYBIT, KEY_RIGHT);
-    ioctl(fd, UI_SET_KEYBIT, KEY_LEFT);
-    ioctl(fd, UI_SET_KEYBIT, KEY_W);
-    ioctl(fd, UI_SET_KEYBIT, KEY_E);
-    ioctl(fd, UI_SET_KEYBIT, KEY_R);
-    ioctl(fd, UI_SET_KEYBIT, KEY_T);
-    ioctl(fd, UI_SET_KEYBIT, KEY_Y);
-    ioctl(fd, UI_SET_KEYBIT, KEY_S);
-    ioctl(fd, UI_SET_KEYBIT, KEY_D);
-    ioctl(fd, UI_SET_KEYBIT, KEY_F);
-    ioctl(fd, UI_SET_KEYBIT, KEY_G);
-    ioctl(fd, UI_SET_KEYBIT, KEY_H);
-    ioctl(fd, UI_SET_KEYBIT, KEY_LEFTMETA);
-    ioctl(fd, UI_SET_KEYBIT, KEY_UP);
-    ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);
-    ioctl(fd, UI_SET_KEYBIT, KEY_ENTER);
-    
-    memset(&usetup, 0, sizeof(usetup));
-    usetup.id.bustype = BUS_USB;
-    usetup.id.vendor = 0x1234; // sample vendor
-    usetup.id.product = 0x5678; //sample product
-    strcpy(usetup.name, "Pisound-Micro Pin to Keypress Device");
-
-    ioctl(fd, UI_DEV_SETUP, &usetup);
-    ioctl(fd, UI_DEV_CREATE);
-    pinKbd_obj->uinput_fd = fd;
     //---------------------------------------------------------
     if(num_of_chips <= 0)return NULL;
     if(!chip_paths)return NULL;
@@ -424,13 +360,13 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 //control_num - the number of encoder or button on the chip
 //control_value - the value of the control, 0 - for button release, 1 - push, 1 - for encoder CW rotation, -1 for CCW
 //inc_mult how many times the events should be invoked
+//TODO not working now, because the emmit functions where transfered to its library
+/*
 static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip_num, unsigned int control_num, int control_value, unsigned int inc_mult, unsigned int button){
     if(!pinKbd_obj)return -1;
     int fd = pinKbd_obj->uinput_fd;
     if(!fd)return -1;
     if(inc_mult <= 0) return -1;
-    //TODO these cases should be cleanedup and implemented a system which finds the control_num in a conf file and finds the corresponding keypress it should emmit
-    //on key press and key realese, or in case of encoders what it should on CW and CCW ticks
     for(int i = 0; i < inc_mult; i++){
 	if(chip_num == 0){
 	    if(button == 1){
@@ -845,7 +781,7 @@ static int pinKbd_invoke_control(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int chip
 
     return 0;
 }
-
+*/
 //update all encoder and button values
 //first checks if any events happened at all, if yes goes through proper processes for encoders and buttons
 //enc_sens - encoder sensitivity, the encoder must accumulate this many positive (for CW) or negative (for CCW) events to invoke its function
@@ -935,8 +871,11 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 			    if(changed_val ==1){
 				curr_event->line_timestamps[control_num] = timestamp;
 				if(abs(curr_event->intrf_value[control_num]) >= enc_sens){
+				    //TODO now the invoke control function does not work, because the emmit functions are in its own library
+				    /*
 				    pinKbd_invoke_control(pinKbd_obj, curr_event->chip_num, control_num, curr_event->intrf_value[control_num],
 							  abs(curr_event->intrf_value[control_num])/enc_sens, 0);
+				    */
 				    curr_event->intrf_value[control_num] = 0;
 				}
 			    }
@@ -945,7 +884,10 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 			else if(curr_event->watch_buttons == 1){
 			    curr_event->intrf_value[control_num] += 1;
 			    if(curr_event->intrf_value[control_num] > 0){
+				//TODO now the invoke control function does not work, because the emmit functions are in its own library
+				/*				
 				pinKbd_invoke_control(pinKbd_obj, curr_event->chip_num, control_num, curr_event->final_values[control_num], 1, 1);
+				*/
 				curr_event->intrf_value[control_num] = 0;
 			    }
 			    changed_val = 1;

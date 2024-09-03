@@ -1,6 +1,20 @@
 #include <string.h>
+#include <linux/uinput.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "emmit_funcs.h"
 
+//function that writes bits to the fd to simulate a keypress
+static void emit(int fd, int type, int code, int val){
+    struct input_event ie;
+    ie.type = type;
+    ie.code = code;
+    ie.value = val;
+    ie.time.tv_sec = 0;
+    ie.time.tv_usec = 0;
+
+    write(fd, &ie, sizeof(ie));
+}
 //convert input string (for ex KEY_W) to code
 int app_emmit_convert_to_enum(const char* in_string){
     if(strcmp(in_string, "KEY_ESC") == 0)return 1;
@@ -693,4 +707,58 @@ int app_emmit_convert_to_enum(const char* in_string){
        
     return -1;
 
+}
+
+int app_emmit_emmit_keypress(int uinput_fd, int* keybits, int keybit_size, int val, unsigned int emmit_invert){
+    if(keybit_size <= 0)return -1;
+    if(!keybits)return -1;
+
+    for(int i = 0; i < keybit_size; i++){
+	int cur_keybit = keybits[i];
+	emit(uinput_fd, EV_KEY, cur_keybit, val);
+    }
+    emit(uinput_fd, EV_SYN, SYN_REPORT, 0);
+
+    if(emmit_invert == 0)return 0;
+    for(int i = 0; i < keybit_size; i++){
+	int cur_keybit = keybits[i];
+	int new_val = 0;
+	if(val == 0)new_val = 1;
+	emit(uinput_fd, EV_KEY, cur_keybit, new_val);
+    }
+    emit(uinput_fd, EV_SYN, SYN_REPORT, 0);
+
+    return 0;
+}
+
+int app_emmit_init_input(int* uinput_fd, const char* device_name, int* keybits, int keybit_size){
+    if(keybit_size <= 0)return -1;
+    struct uinput_setup usetup;
+    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    if(!fd)return -1;
+    //initiate the virtual device for emmiting the keypresses
+    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    for(int i = 0; i < keybit_size; i++){
+	int cur_keybit = keybits[i];
+	ioctl(fd, UI_SET_KEYBIT, cur_keybit);
+    }
+    
+    memset(&usetup, 0, sizeof(usetup));
+    usetup.id.bustype = BUS_USB;
+    usetup.id.vendor = 0x1234; // sample vendor
+    usetup.id.product = 0x5678; //sample product
+    strcpy(usetup.name, device_name);
+
+    ioctl(fd, UI_DEV_SETUP, &usetup);
+    ioctl(fd, UI_DEV_CREATE);
+    *uinput_fd = fd;
+
+    return 0;
+}
+
+void app_emmit_clean(int uinput_fd){
+    if(uinput_fd == 0)return;
+    //clean the uinput emmiter
+    ioctl(uinput_fd, UI_DEV_DESTROY);
+    close(uinput_fd);
 }
