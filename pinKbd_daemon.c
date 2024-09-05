@@ -28,6 +28,13 @@ static void term(int signum){
     done = 1;
 }
 
+//struct that holds keypress enum array
+typedef struct _pinKbd_KEYPRESS{
+    int* key_enums;
+    unsigned int key_enums_size;
+    unsigned int key_inv; //should the keypress be repeated, but in its inverted form (sending keypress on and keypress off signals for the key)
+}PINKBD_KEYPRESS;
+
 //event struct that holds gpiod request with lines to watch and gpiod event and event buffers
 typedef struct _pinKbd_EVENT{
     struct gpiod_line_request* event_request;
