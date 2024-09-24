@@ -28,13 +28,6 @@ static void term(int signum){
     done = 1;
 }
 
-//struct that holds keypress enum array
-typedef struct _pinKbd_KEYPRESS{
-    int* key_enums;
-    unsigned int key_enums_size;
-    unsigned int key_inv; //should the keypress be repeated, but in its inverted form (sending keypress on and keypress off signals for the key)
-}PINKBD_KEYPRESS;
-
 //event struct that holds gpiod request with lines to watch and gpiod event and event buffers
 typedef struct _pinKbd_EVENT{
     struct gpiod_line_request* event_request;
@@ -49,6 +42,7 @@ typedef struct _pinKbd_EVENT{
     unsigned int watch_buttons; //if == 1 this event watches buttons, otherwise - encoders. usefull when there is an event in the buffer and its
     //necessary to get the corresponding encoder or button (usually encoders or buttons index in the array).
     unsigned int chip_num; //chip number for this event in the PINKBD_GPIO_COMM chips array
+    APP_EMMIT_KEYPRESS** event_keypresses; //the keypresses structs per line (for encoders the array size is num_of_watched_lines too, but even numbers mean CW keypresses and odd numbers - CCW presses)
 }PINKBD_EVENT;
 
 //struct that holds all of the gpio communication
@@ -89,6 +83,13 @@ static void pinKbd_clean(PINKBD_GPIO_COMM* pinKbd_obj){
 	    if(curr_event->final_values_last)free(curr_event->final_values_last);
 	    if(curr_event->line_timestamps)free(curr_event->line_timestamps);
 	    if(curr_event->intrf_value)free(curr_event->intrf_value);
+	    //clean the event_keypresses structs
+	    if(curr_event->event_keypresses){
+		for(int j = 0; j < curr_event->num_of_watched_lines; j++){
+		    app_emmit_clean_keypress(curr_event->event_keypresses[j]);
+		}
+		free(curr_event->event_keypresses);
+	    }
 	    free(curr_event);
 	}
 	free(pinKbd_obj->pin_events);
@@ -173,6 +174,7 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
     curr_event->final_values_last = NULL;
     curr_event->line_values = NULL;
     curr_event->edge_event_buffer = gpiod_edge_event_buffer_new(curr_event->num_of_watched_lines);
+    curr_event->event_keypresses = NULL;
     
     //which chip this is in the chips array
     for(int chp_i = 0; chp_i < pinKbd_obj->num_of_chips; chp_i++){

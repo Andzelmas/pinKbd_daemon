@@ -2,7 +2,15 @@
 #include <linux/uinput.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include "emmit_funcs.h"
+
+//struct that holds keypress enum array
+typedef struct _emmit_KEYPRESS{
+    int* key_enums;
+    unsigned int key_enums_size;
+    unsigned int key_inv; //should the keypress be repeated, but in its inverted form (sending keypress on and keypress off signals for the key)
+}EMMIT_KEYPRESS;
 
 //function that writes bits to the fd to simulate a keypress
 static void emit(int fd, int type, int code, int val){
@@ -709,26 +717,43 @@ int app_emmit_convert_to_enum(const char* in_string){
 
 }
 
-int app_emmit_emmit_keypress(int uinput_fd, int* keybits, int keybit_size, int val, unsigned int emmit_invert){
-    if(keybit_size <= 0)return -1;
-    if(!keybits)return -1;
+int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress){
+    if(!keypress)return -1;
+    EMMIT_KEYPRESS* emmit_press = (EMMIT_KEYPRESS*)keypress;
+    if(!emmit_press)return -1;
+    
+    if(emmit_press->key_enums_size <= 0)return -1;
+    if(!(emmit_press->key_enums))return -1;
 
-    for(int i = 0; i < keybit_size; i++){
-	int cur_keybit = keybits[i];
-	emit(uinput_fd, EV_KEY, cur_keybit, val);
+    for(int i = 0; i < emmit_press->key_enums_size; i++){
+	int cur_keybit = emmit_press->key_enums[i];
+	emit(uinput_fd, EV_KEY, cur_keybit, 1);
     }
     emit(uinput_fd, EV_SYN, SYN_REPORT, 0);
 
-    if(emmit_invert == 0)return 0;
-    for(int i = 0; i < keybit_size; i++){
-	int cur_keybit = keybits[i];
-	int new_val = 0;
-	if(val == 0)new_val = 1;
-	emit(uinput_fd, EV_KEY, cur_keybit, new_val);
+    if(emmit_press->key_inv == 0)return 0;
+    for(int i = 0; i < emmit_press->key_enums_size; i++){
+	int cur_keybit = emmit_press->key_enums[i];
+	emit(uinput_fd, EV_KEY, cur_keybit, 0);
     }
     emit(uinput_fd, EV_SYN, SYN_REPORT, 0);
 
     return 0;
+}
+
+APP_EMMIT_KEYPRESS* app_emmit_init_keypress(int* key_nums, int key_size, int invert){
+    if(!key_nums)return NULL;
+    if(key_size <= 0)return NULL;
+    EMMIT_KEYPRESS* return_keypress = malloc(sizeof(EMMIT_KEYPRESS));
+    if(!return_keypress)return NULL;
+    return_keypress->key_enums = malloc(sizeof(int) * key_size);
+    if(!(return_keypress->key_enums))return NULL;
+    for(int i = 0; i < key_size; i ++){
+	return_keypress->key_enums[i] = key_nums[i];
+    }
+    return_keypress->key_enums_size = key_size;
+    return_keypress->key_inv = invert;
+    return (APP_EMMIT_KEYPRESS*)return_keypress;
 }
 
 int app_emmit_init_input(int* uinput_fd, const char* device_name, int* keybits, int keybit_size){
@@ -761,4 +786,12 @@ void app_emmit_clean(int uinput_fd){
     //clean the uinput emmiter
     ioctl(uinput_fd, UI_DEV_DESTROY);
     close(uinput_fd);
+}
+
+void app_emmit_clean_keypress(APP_EMMIT_KEYPRESS* keypress){
+    if(!keypress)return;
+    EMMIT_KEYPRESS* emmit_press = (EMMIT_KEYPRESS*)keypress;
+    if(!emmit_press)return;
+    if(emmit_press->key_enums)free(emmit_press->key_enums);
+    free(emmit_press);
 }
