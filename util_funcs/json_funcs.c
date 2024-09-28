@@ -48,11 +48,36 @@ clean:
     if(fp)fclose(fp);
     return ret_string;
 }
-//TODO only for debuging for now
-void app_json_print_name(JSONHANDLE* in_handle){
-    struct json_object* parsed_fp = (struct json_object*)in_handle;
-    if(!parsed_fp)return;
-    printf("name %s \n", json_object_to_json_string(parsed_fp));
+
+int app_json_obj_to_float(JSONHANDLE* in_handle, float* ret_float){
+    int error = -1;
+    struct json_object* in_obj = (struct json_object*)in_handle;
+    if(!in_obj)return error;
+    if(json_object_get_type(in_obj) == json_type_null || json_object_get_type(in_obj) != json_type_double)return error;
+    *ret_float = json_object_get_double(in_obj);
+
+    return 0;
+}
+
+int app_json_obj_to_int(JSONHANDLE* in_handle, int* ret_int){
+    int error = -1;
+    struct json_object* in_obj = (struct json_object*)in_handle;
+    if(!in_obj)return error;
+    if(json_object_get_type(in_obj) == json_type_null || json_object_get_type(in_obj) != json_type_int)return error;
+    *ret_int = json_object_get_int(in_obj);
+
+    return 0;
+}
+
+char* app_json_obj_to_string(JSONHANDLE* in_handle){
+    struct json_object* in_obj = (struct json_object*)in_handle;
+    if(!in_obj)return NULL;
+    if(json_object_get_type(in_obj) == json_type_null || json_object_get_type(in_obj) != json_type_string)return NULL;
+    const char* json_string = json_object_get_string(in_obj);
+    char* ret_string = malloc(sizeof(char) * (strlen(json_string) + 1));
+    if(!ret_string)return NULL;
+    snprintf(ret_string, (strlen(json_string) + 1), "%s", json_string);
+    return ret_string;
 }
 
 JSONHANDLE* app_json_iterate_and_return_parent(JSONHANDLE* in_handle, JSONHANDLE* child){

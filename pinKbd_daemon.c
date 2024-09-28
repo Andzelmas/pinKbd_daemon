@@ -240,10 +240,9 @@ static void pinKbd_init_from_config(const char* config_path){
 	app_json_iterate_and_find_obj(chipname_parent, "line_num", &lines, &lines_size);
 	
 	for(int j = 0; j < lines_size; j++){
-	    JSONHANDLE* cur_line = lines[j];
+	    JSONHANDLE* cur_line = lines[j];    
 	    JSONHANDLE* line_parent = app_json_iterate_and_return_parent(parsed_fp, cur_line);
 	    JSONHANDLE* parent_of_line_parent = app_json_iterate_and_return_parent(parsed_fp, line_parent);
-	    app_json_print_name(parent_of_line_parent);
 	}
 	
 	if(lines)free(lines);

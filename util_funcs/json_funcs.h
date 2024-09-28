@@ -3,8 +3,12 @@
 typedef void JSONHANDLE;
 //load a file to the buffer and return it, needs to be freed later
 static char* app_json_read_to_buffer(const char* file_path);
-//print name of the JSONHANDLE
-void app_json_print_name(JSONHANDLE* in_handle);
+//return float from json handle to ret_float, returns 0 on succsess, -1 otherwise
+int app_json_obj_to_float(JSONHANDLE* in_handle, float* ret_float);
+//return int from json handle to ret_int, this function returns 0 on success, -1 otherwise
+int app_json_obj_to_int(JSONHANDLE* in_handle, int* ret_int);
+//return a string from the json handle, its memory must be freed
+char* app_json_obj_to_string(JSONHANDLE* in_handle);
 //return the parent JSONHANDLE object of the child
 JSONHANDLE* app_json_iterate_and_return_parent(JSONHANDLE* in_handle, JSONHANDLE* child);
 //iterate recursively through the json object and find all occurances of objects with names find_name, objs_size returns the size of the object array objs
