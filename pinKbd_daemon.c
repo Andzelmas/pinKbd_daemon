@@ -222,10 +222,8 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 }
 //initialize the PINKBD_GPIO_COMM struct from json config file
 static void pinKbd_init_from_config(const char* config_path){
-    //TODO here should call app_emmit_init_input
-    //TODO first will need to convert the keypress shortcuts from string to int and store them as structs per line
-    //so the control_num in the invoke_control function will get the corresponding keypress shortcut struct in the array and use
-    //the app_emmit_emmit_keypress function to emmit the keypress (keybits will be an array on the keypress shortcut struct)
+    //TODO first return all keys with app_json_iterate_and_find_obj
+    //TODO then call app_emmit_init_input to initd the key emmiter for those keys
     
     JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
     JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
