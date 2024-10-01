@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "emmit_funcs.h"
 
 //struct that holds keypress enum array
@@ -760,9 +761,9 @@ int app_emmit_init_input(int* uinput_fd, const char* device_name, int* keybits, 
     if(keybit_size <= 0)return -1;
     struct uinput_setup usetup;
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if(!fd)return -1;
+    if(fd < 0)return -1;
     //initiate the virtual device for emmiting the keypresses
-    ioctl(fd, UI_SET_EVBIT, EV_KEY);
+    int err = ioctl(fd, UI_SET_EVBIT, EV_KEY);
     for(int i = 0; i < keybit_size; i++){
 	int cur_keybit = keybits[i];
 	ioctl(fd, UI_SET_KEYBIT, cur_keybit);

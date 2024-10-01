@@ -9,6 +9,9 @@ int app_json_obj_to_float(JSONHANDLE* in_handle, float* ret_float);
 int app_json_obj_to_int(JSONHANDLE* in_handle, int* ret_int);
 //return a string from the json handle, its memory must be freed
 char* app_json_obj_to_string(JSONHANDLE* in_handle);
+//return an array of strings from an array json object
+//needs to be freed (the array and each string). Check each array member if its not null when using
+char** app_json_array_to_string_array(JSONHANDLE* in_handle, size_t* size);
 //return the parent JSONHANDLE object of the child
 JSONHANDLE* app_json_iterate_and_return_parent(JSONHANDLE* in_handle, JSONHANDLE* child);
 //iterate recursively through the json object and find all occurances of objects with names find_name, objs_size returns the size of the object array objs

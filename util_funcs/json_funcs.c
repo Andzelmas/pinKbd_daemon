@@ -80,6 +80,30 @@ char* app_json_obj_to_string(JSONHANDLE* in_handle){
     return ret_string;
 }
 
+char** app_json_array_to_string_array(JSONHANDLE* in_handle, size_t* size){
+    struct json_object* in_obj = (struct json_object*)in_handle;
+    if(!in_obj)return NULL;
+    if(json_object_get_type(in_obj) == json_type_null || json_object_get_type(in_obj) != json_type_array)return NULL;
+    const char* json_string = json_object_get_string(in_obj);
+    int array_size = json_object_array_length(in_obj);
+    if(array_size <= 0)return NULL;
+    *size = array_size;
+    char** return_string_array = malloc(sizeof(char*) * (array_size));
+    for(size_t i = 0; i < array_size; i++){
+	struct json_object* curr_obj = json_object_array_get_idx(in_obj, i);
+	return_string_array[i] = NULL;
+	if(json_object_get_type(curr_obj) == json_type_null || json_object_get_type(curr_obj) != json_type_string){
+	    continue;
+	}
+	char* curr_string = app_json_obj_to_string(curr_obj);
+	if(!curr_string) continue;
+
+	return_string_array[i] = curr_string;
+    }
+
+    return return_string_array;
+}
+
 JSONHANDLE* app_json_iterate_and_return_parent(JSONHANDLE* in_handle, JSONHANDLE* child){
     struct json_object* parsed_fp = (struct json_object*)in_handle;
     if(!parsed_fp)return NULL;

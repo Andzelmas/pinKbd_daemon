@@ -57,10 +57,8 @@ typedef struct _pinKbd_GPIO_COMM{
 
 //clean everything function
 static void pinKbd_clean(PINKBD_GPIO_COMM* pinKbd_obj){
-    app_emmit_clean(pinKbd_obj->uinput_fd);
-    
     if(!pinKbd_obj)return;
-
+    app_emmit_clean(pinKbd_obj->uinput_fd);
     if(pinKbd_obj->chips){
 	for(int i = 0; i < pinKbd_obj->num_of_chips; i++){
 	    if(!(pinKbd_obj->chips[i]))
@@ -221,35 +219,76 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
     return 0;
 }
 //initialize the PINKBD_GPIO_COMM struct from json config file
-static void pinKbd_init_from_config(const char* config_path){
-    //TODO first return all keys with app_json_iterate_and_find_obj
-    //TODO then call app_emmit_init_input to initd the key emmiter for those keys
+static PINKBD_GPIO_COMM* pinKbd_init_from_config(const char* config_path){
+    PINKBD_GPIO_COMM* pinKbd_obj = malloc(sizeof(PINKBD_GPIO_COMM));
+    if(!pinKbd_obj)return NULL;
+    pinKbd_obj->chips = NULL;
+    pinKbd_obj->num_of_chips = 0;
+    pinKbd_obj->pin_events = NULL;
+    pinKbd_obj->num_of_pin_events = 0;
+    pinKbd_obj->uinput_fd = 0;
     
     JSONHANDLE* parsed_fp = app_json_tokenise_path(config_path);
+    if(!parsed_fp)return NULL;
+    
+    //------------------------------------------------------------
+    //get all the possible keybits from the pin_config file
+    JSONHANDLE** keys = malloc(sizeof(JSONHANDLE*));
+    unsigned int keys_size = 0;
+    int err_keys_array = app_json_iterate_and_find_obj(parsed_fp, "keys", &keys, &keys_size);
+    int* keybit_array = malloc(sizeof(int));
+    int keybit_size = 0;
+    for(size_t j = 0; j < keys_size; j++){
+	JSONHANDLE* cur_key = keys[j];
+	size_t elem_size = 0;
+	char** cur_key_elements = app_json_array_to_string_array(cur_key, &elem_size);
+	if(!cur_key_elements)continue;
+	for(size_t key_elem = 0; key_elem < elem_size; key_elem++){
+	    char* cur_string = cur_key_elements[key_elem];
+	    if(!cur_string)continue;
+
+	    int cur_keybit = app_emmit_convert_to_enum(cur_string);
+	    free(cur_string);
+	    if(cur_keybit == -1)continue;
+	    //add the keybit to the keybit_array, but only if its not already there
+	    unsigned int found = 0;
+	    for(size_t kb = 0; kb < keybit_size; kb ++){
+		if(cur_keybit == keybit_array[kb]){
+		    found = 1;
+		    break;
+		}
+	    }
+	    if(found == 1)continue;
+	    keybit_size += 1;
+	    int* temp_array = realloc(keybit_array, sizeof(int) * keybit_size);
+	    if(!temp_array)continue;
+	    keybit_array = temp_array;
+	    keybit_array[keybit_size - 1] = cur_keybit;
+	}
+	free(cur_key_elements);
+    }
+    if(keys)free(keys);
+    //now init the emmit for all the keys
+    if(keybit_array){
+	if(keybit_size > 0){
+	    int err = app_emmit_init_input(&(pinKbd_obj->uinput_fd), "pinKbd emmiter", keybit_array, keybit_size);
+	}
+	free(keybit_array);
+    }
+    //------------------------------------------------------------
+    
     JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
     unsigned int chips_size = 0;
     int err_chips = app_json_iterate_and_find_obj(parsed_fp, "chipname", &chips, &chips_size);
     
     for(int i = 0; i < chips_size; i++){
-	JSONHANDLE* cur_chipname = chips[i];
-
-	JSONHANDLE* chipname_parent = app_json_iterate_and_return_parent(parsed_fp, cur_chipname);
-
-	JSONHANDLE** lines = malloc(sizeof(JSONHANDLE*));
-	unsigned int lines_size = 0;
-	app_json_iterate_and_find_obj(chipname_parent, "line_num", &lines, &lines_size);
 	
-	for(int j = 0; j < lines_size; j++){
-	    JSONHANDLE* cur_line = lines[j];    
-	    JSONHANDLE* line_parent = app_json_iterate_and_return_parent(parsed_fp, cur_line);
-	    JSONHANDLE* parent_of_line_parent = app_json_iterate_and_return_parent(parsed_fp, line_parent);
-	}
-	
-	if(lines)free(lines);
     }
     
     if(parsed_fp)app_json_clean_object(parsed_fp);
     if(chips)free(chips);
+
+    return pinKbd_obj;
 }
 
 //initiate the PINKBD_GPIO_COMM struct,
@@ -981,14 +1020,11 @@ int main(){
     sigaction(SIGINT, &sig_action, NULL);
     sigaction(SIGTERM, &sig_action, NULL);
     
-    //TODO not implemented yet
     //use the config file to setup the pins
-    pinKbd_init_from_config("pin_config.json");
-    //return for testing
-    return 0;
-    
-    //---------------------------------------------
-    //TODO the labels should be in a config file along with lines for buttons and encoders
+    PINKBD_GPIO_COMM* pinKbd_obj = pinKbd_init_from_config("pin_config.json");
+    if(!pinKbd_obj)return -1;
+
+    /*
     //find chip path from a label
     char* chip_rpi_path = pinKbd_return_path_from_label("pinctrl-bcm2711");
     if(!chip_rpi_path){
@@ -1020,6 +1056,7 @@ int main(){
     while(!done){
 	pinKbd_update_values(pinKbd_obj, 4);
     }
+    */
     
     //clean everything here
     pinKbd_clean(pinKbd_obj);
