@@ -135,7 +135,7 @@ int app_json_iterate_and_find_obj(JSONHANDLE* in_handle, const char* find_name, 
     struct json_object* parsed_fp = (struct json_object*)in_handle;
     if(!parsed_fp)return -1;
     if(!(*objs))return -1;
-    
+    if(json_object_get_type(parsed_fp) != json_type_object)return -1;
     struct json_object* ret_obj = NULL;
     
     //iterate through the parsed_fp

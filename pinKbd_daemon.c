@@ -98,7 +98,7 @@ static void pinKbd_clean(PINKBD_GPIO_COMM* pinKbd_obj){
 static struct gpiod_line_request* request_input_line(struct gpiod_chip* chip,
 						     const unsigned int* offsets,
 						     unsigned int num_lines,
-						     const char* consumer, unsigned int debounce){
+						     const char* consumer){
     if(!chip)return NULL;
 
     struct gpiod_request_config* reg_cfg = NULL;
@@ -112,8 +112,6 @@ static struct gpiod_line_request* request_input_line(struct gpiod_chip* chip,
     gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
     gpiod_line_settings_set_edge_detection(settings, GPIOD_LINE_EDGE_BOTH);
     gpiod_line_settings_set_bias(settings, GPIOD_LINE_BIAS_PULL_UP);
-    if(debounce==1)
-	gpiod_line_settings_set_debounce_period_us(settings, 10000);
     
     line_cfg = gpiod_line_config_new();
     if(!line_cfg)
@@ -146,7 +144,7 @@ clean:
 //control_num - how many encoders or buttons are watched, for buttons lines_num == control_num, for encoders lines_num *2 == control_num
 static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_events,
 			     struct gpiod_chip* curr_chip, unsigned int* lines_for_req, unsigned int lines_num, unsigned int control_num, const char* consumer,
-			     unsigned int debounce, unsigned int buttons){
+			     unsigned int buttons){
     pinKbd_obj->pin_events = realloc(pinKbd_obj->pin_events, sizeof(PINKBD_EVENT*) * num_of_events);
     if(!(pinKbd_obj->pin_events)){
 	printf("Could not realloc pin_events\n");
@@ -158,7 +156,7 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
 	return -1;
     }
     pinKbd_obj->pin_events[num_of_events - 1] = curr_event;
-    curr_event->event_request = request_input_line(curr_chip, lines_for_req, lines_num, consumer, debounce);
+    curr_event->event_request = request_input_line(curr_chip, lines_for_req, lines_num, consumer);
     if(!(curr_event->event_request)){
 	printf("Could not create line request\n");
 	return -1;
@@ -218,6 +216,73 @@ static int pinKbd_init_event(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int num_of_e
     memset(curr_event->intrf_value, 0, sizeof(int) * control_num);
     return 0;
 }
+
+//filter the paths that are chip paths, copied from libgpiod tools-common.h
+static int chip_dir_filter(const struct dirent *entry)
+{
+	struct stat sb;
+	int ret = 0;
+	char *path;
+	unsigned int path_len = strlen(entry->d_name)+6;
+	path = malloc(sizeof(char)*path_len);
+	if(!path)return 0;
+	snprintf(path, path_len, "/dev/%s", entry->d_name);
+
+	if ((lstat(path, &sb) == 0) && (!S_ISLNK(sb.st_mode)) &&
+	    gpiod_is_gpiochip_device(path))
+		ret = 1;
+
+	free(path);
+
+	return ret;
+}
+//clean the return dirent struct
+static void dirent_clean_dirents(unsigned int num, struct dirent **entries){
+    if(num <= 0)return;
+    for(int j = 0; j < num; j++){
+	free(entries[j]);
+    }
+    free(entries);
+}
+//returns path in /dev/ of the chip with chip_label, altered from libgpiod tools-common.h
+static char* pinKbd_return_path_from_label(const char* chip_label){
+    char* ret_path = NULL;
+    int num_chips = 0;
+    struct dirent **entries;
+    num_chips = scandir("/dev/", &entries, chip_dir_filter, alphasort);
+    if(num_chips < 0)return NULL;
+
+    for(int i = 0; i < num_chips; i++){
+	unsigned int path_len = strlen(entries[i]->d_name)+6;
+	char* chip_path = malloc(sizeof(char)*path_len);
+	if(!chip_path)continue;
+	snprintf(chip_path, path_len, "/dev/%s", entries[i]->d_name);
+	struct gpiod_chip* cur_chip = gpiod_chip_open(chip_path);
+	if(!cur_chip){
+	    free(chip_path);
+	    continue;
+	}
+	struct gpiod_chip_info* info = gpiod_chip_get_info(cur_chip);
+	if(!info){
+	    free(chip_path);
+	    gpiod_chip_close(cur_chip);
+	    continue;
+	}
+	
+	if(strcmp(gpiod_chip_info_get_label(info), chip_label) == 0){
+	    ret_path = chip_path;
+	    gpiod_chip_info_free(info);
+	    gpiod_chip_close(cur_chip);
+	    break;
+	}
+	free(chip_path);
+	gpiod_chip_info_free(info);
+	gpiod_chip_close(cur_chip);
+    }
+    dirent_clean_dirents(num_chips, entries);
+    return ret_path;
+}
+
 //initialize the PINKBD_GPIO_COMM struct from json config file
 static PINKBD_GPIO_COMM* pinKbd_init_from_config(const char* config_path){
     PINKBD_GPIO_COMM* pinKbd_obj = malloc(sizeof(PINKBD_GPIO_COMM));
@@ -259,9 +324,9 @@ static PINKBD_GPIO_COMM* pinKbd_init_from_config(const char* config_path){
 		}
 	    }
 	    if(found == 1)continue;
-	    keybit_size += 1;
-	    int* temp_array = realloc(keybit_array, sizeof(int) * keybit_size);
+	    int* temp_array = realloc(keybit_array, sizeof(int) * (keybit_size+1));
 	    if(!temp_array)continue;
+	    keybit_size += 1;	    
 	    keybit_array = temp_array;
 	    keybit_array[keybit_size - 1] = cur_keybit;
 	}
@@ -280,13 +345,133 @@ static PINKBD_GPIO_COMM* pinKbd_init_from_config(const char* config_path){
     JSONHANDLE** chips = malloc(sizeof(JSONHANDLE*));
     unsigned int chips_size = 0;
     int err_chips = app_json_iterate_and_find_obj(parsed_fp, "chipname", &chips, &chips_size);
-    
+    //create placeholder for the chips array
+    pinKbd_obj->chips = malloc(sizeof(struct gpiod_chip*) * chips_size);
+    if(!(pinKbd_obj->chips)){
+	printf("Could not create the chip array\n");
+	pinKbd_clean(pinKbd_obj);
+	return NULL;
+    }
+    pinKbd_obj->num_of_chips = chips_size;
     for(int i = 0; i < chips_size; i++){
+	pinKbd_obj->chips[i] = NULL;
+	JSONHANDLE* curr_chip = chips[i];
+	if(!curr_chip)continue;
+	char* chip_label = app_json_obj_to_string(curr_chip);
+	if(!chip_label)continue;
+	JSONHANDLE* chip_parent = app_json_iterate_and_return_parent(parsed_fp, curr_chip);
+	/*
+	//find chip path from a label
+
+	char* chip_path = pinKbd_return_path_from_label(chip_label);
+	if(!chip_path){
+	    printf("could not find %s path \n", chip_label);
+	    free(chip_label);
+	    continue;
+	}
+	free(chip_label);
+	
+	//create the chip
+	pinKbd_obj->chips[i] = gpiod_chip_open(chip_path);
+	free(chip_path);	
+	if(!(pinKbd_obj->chips[i])){
+	    printf("Could not create the %s chip\n",chip_path);
+	    continue;
+	}
+	*/
+	//now find the encoder and button lines for curr_chip in the pin_config.json
+	unsigned int enc_num = 0; //how many encoders on this chip
+	unsigned int btn_num = 0; //how many buttons on this chip
+	unsigned int* enc_line_nums = malloc(sizeof(unsigned int)); //array with the line numbers for the encoders for this chip
+	unsigned int* btn_line_nums = malloc(sizeof(unsigned int)); //array with the line numbers for the buttons for this chip
+	//TODO add app_emmit_keypress struct arrays for encoder keypresses and button keypresses for this chip
+	
+	if(!enc_line_nums || !btn_line_nums){
+	    goto clean_fail;
+	}
+	//get all the json obj with key word name
+	JSONHANDLE** names = malloc(sizeof(JSONHANDLE*));
+	unsigned int names_size = 0;
+	int err_types = app_json_iterate_and_find_obj(chip_parent, "name", &names, &names_size);
+	for(size_t j = 0; j < names_size; j++){
+	    //name_parent is a button or encoder entry in the pin_config
+	    JSONHANDLE* name_parent = app_json_iterate_and_return_parent(chip_parent, names[j]);
+	    if(!name_parent)continue;
+	    //now get the line_num and keys entries on the encoder or button
+	    //since the lines and keys on the lines are in sequence no need to get the line_num parent in order to get the key array for that line
+	    JSONHANDLE** line_nums = malloc(sizeof(JSONHANDLE*));
+	    //if line_size == 2 this is an encoder, if line_size == 1 its a button
+	    unsigned int line_size = 0;
+	    app_json_iterate_and_find_obj(name_parent, "line_num", &line_nums, &line_size);
+	    unsigned int button = 0;
+	    if(line_size == 1) button = 1;
+	    printf("is this button - %d \n", button);
+	    if(!line_nums)continue;
+	    JSONHANDLE** key_arrays = malloc(sizeof(JSONHANDLE*));
+	    unsigned int key_size = 0;
+	    app_json_iterate_and_find_obj(name_parent, "keys", &key_arrays, &key_size);
+	    //the should be same number of line_nums and key arrays, if not the pin_config has an error for this encoder or button
+	    if(!key_arrays || line_size != key_size){
+		if(key_arrays)free(key_arrays);
+		free(line_nums);
+		continue;
+	    }	    
+	    for(size_t lin = 0; lin < line_size; lin++){
+		JSONHANDLE* curr_line_num = line_nums[lin];
+		JSONHANDLE* curr_key_array = key_arrays[lin];
+		int line_num_int = 0;
+		if(app_json_obj_to_int(curr_line_num, &line_num_int) == -1)continue;
+		//TODO add the line_num_int to the encoder or button array for this chip
+		
+		printf("line num %d\n", line_num_int);
+		APP_EMMIT_KEYPRESS* line_keypress_struct = NULL;
+		//TODO add this null app_emmit_keypress struct to the encoder or button keypress struct array for this chip
+		
+		//now get the strings from the key array and convert them to keybits that will be stored event_keypresses struct array for this line
+		int* keybit_array = malloc(sizeof(int));
+		if(!keybit_array)continue;
+		int keybit_size = 0;
+		
+		size_t elem_size = 0;
+		char** cur_key_elements = app_json_array_to_string_array(curr_key_array, &elem_size);
+		if(!cur_key_elements)continue;		
+		for(size_t key_elem = 0; key_elem < elem_size; key_elem++){
+		    char* cur_key_string = cur_key_elements[key_elem];
+		    if(!cur_key_string)continue;
+		    int cur_keybit = app_emmit_convert_to_enum(cur_key_string);
+		    printf("key %s keybit %d \n", cur_key_string, cur_keybit);
+		    free(cur_key_string);
+		    if(cur_keybit == -1)continue;
+		    int* temp_array = realloc(keybit_array, sizeof(int) * (keybit_size+1));
+		    if(!temp_array)continue;
+		    keybit_size += 1;		    
+		    keybit_array = temp_array;
+		    keybit_array[keybit_size - 1] = cur_keybit;		    
+		}
+		line_keypress_struct = app_emmit_init_keypress(keybit_array, keybit_size, button);
+		//TODO add line_keypress_struct to the encoder or button keypress struct array for this chip
+		
+		free(cur_key_elements);		
+		
+	    }
+	    if(line_nums)free(line_nums);
+	    if(key_arrays)free(key_arrays);
+	}
+	
+	if(!names)goto clean_fail;
+	free(names);
+	continue;
+	
+    clean_fail:
+	if(enc_line_nums)free(enc_line_nums);
+	if(btn_line_nums)free(btn_line_nums);
+	gpiod_chip_close(pinKbd_obj->chips[i]);
+	pinKbd_obj->chips[i] = NULL;
+	if(names)free(names);
 	
     }
-    
-    if(parsed_fp)app_json_clean_object(parsed_fp);
-    if(chips)free(chips);
+    if(parsed_fp)app_json_clean_object(parsed_fp);    
+    if(chips)free(chips);    
 
     return pinKbd_obj;
 }
@@ -377,7 +562,7 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	//if there where encoders with this chip create request, event etc.
 	if(chip_in_encoders_num > 0 && encoders_lines_for_req){
 	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, chip_in_encoders_num, "pinKbd_line_watch", 0, 0) == -1){
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, encoders_lines_for_req, chip_in_encoders_num * 2, chip_in_encoders_num, "pinKbd_line_watch", 0) == -1){
 		pinKbd_clean(pinKbd_obj);
 		return NULL;
 	    }
@@ -385,7 +570,7 @@ static PINKBD_GPIO_COMM* pinKbd_init(unsigned int num_of_chips, const char** con
 	//if there where buttons with this chip create request, event etc.
 	if(chip_in_btns_num > 0 && btns_lines_for_req){
 	    num_of_events += 1;
-	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 0, 1) == -1){
+	    if(pinKbd_init_event(pinKbd_obj, num_of_events, curr_chip, btns_lines_for_req, chip_in_btns_num, chip_in_btns_num, "pinKbd_line_watch", 1) == -1){
 		pinKbd_clean(pinKbd_obj);
 		return NULL;
 	    }	    
@@ -944,71 +1129,6 @@ static int pinKbd_update_values(PINKBD_GPIO_COMM* pinKbd_obj, unsigned int enc_s
 	    }
 	}
     }
-}
-//filter the paths that are chip paths, copied from libgpiod tools-common.h
-static int chip_dir_filter(const struct dirent *entry)
-{
-	struct stat sb;
-	int ret = 0;
-	char *path;
-	unsigned int path_len = strlen(entry->d_name)+6;
-	path = malloc(sizeof(char)*path_len);
-	if(!path)return 0;
-	snprintf(path, path_len, "/dev/%s", entry->d_name);
-
-	if ((lstat(path, &sb) == 0) && (!S_ISLNK(sb.st_mode)) &&
-	    gpiod_is_gpiochip_device(path))
-		ret = 1;
-
-	free(path);
-
-	return ret;
-}
-//clean the return dirent struct
-static void dirent_clean_dirents(unsigned int num, struct dirent **entries){
-    if(num <= 0)return;
-    for(int j = 0; j < num; j++){
-	free(entries[j]);
-    }
-    free(entries);
-}
-//returns path in /dev/ of the chip with chip_label, altered from libgpiod tools-common.h
-static char* pinKbd_return_path_from_label(const char* chip_label){
-    char* ret_path = NULL;
-    int num_chips = 0;
-    struct dirent **entries;
-    num_chips = scandir("/dev/", &entries, chip_dir_filter, alphasort);
-    if(num_chips < 0)return NULL;
-
-    for(int i = 0; i < num_chips; i++){
-	unsigned int path_len = strlen(entries[i]->d_name)+6;
-	char* chip_path = malloc(sizeof(char)*path_len);
-	if(!chip_path)continue;
-	snprintf(chip_path, path_len, "/dev/%s", entries[i]->d_name);
-	struct gpiod_chip* cur_chip = gpiod_chip_open(chip_path);
-	if(!cur_chip){
-	    free(chip_path);
-	    continue;
-	}
-	struct gpiod_chip_info* info = gpiod_chip_get_info(cur_chip);
-	if(!info){
-	    free(chip_path);
-	    gpiod_chip_close(cur_chip);
-	    continue;
-	}
-	
-	if(strcmp(gpiod_chip_info_get_label(info), chip_label) == 0){
-	    ret_path = chip_path;
-	    gpiod_chip_info_free(info);
-	    gpiod_chip_close(cur_chip);
-	    break;
-	}
-	free(chip_path);
-	gpiod_chip_info_free(info);
-	gpiod_chip_close(cur_chip);
-    }
-    dirent_clean_dirents(num_chips, entries);
-    return ret_path;
 }
 
 int main(){
