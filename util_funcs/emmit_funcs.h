@@ -4,8 +4,8 @@ typedef void APP_EMMIT_KEYPRESS;
 //for all possible code take a look at https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
 //entered key shortcuts are up to Relatie axes
 int app_emmit_convert_to_enum(const char* in_string);
-//emmits a keypress per keybit in the keypress struct.
-int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress);
+//emmits a keypress per keybit in the keypress struct. If unpress == 1, emmits 0 for the key_bit
+int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress, unsigned int unpress);
 //initiates the emmit_keypress struct and returns it as void struct app_emmit_keypress
 APP_EMMIT_KEYPRESS* app_emmit_init_keypress(int* key_nums, int key_size, int invert);
 //init the uinput_fd for the keypresses, keybits - possible keypresses that might be emmited later

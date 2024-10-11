@@ -23,6 +23,83 @@
 		"keys":["KEY_2","KEY_MINUS"]
 	    }
 	},
+	"encoder_3":{
+	    "name":"enc_3",
+	    "line_1":{
+		"line_num":17,
+		"keys":["KEY_3","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":16,
+		"keys":["KEY_3","KEY_MINUS"]
+	    }
+	},
+	"encoder_4":{
+	    "name":"enc_4",
+	    "line_1":{
+		"line_num":10,
+		"keys":["KEY_4","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":11,
+		"keys":["KEY_4","KEY_MINUS"]
+	    }
+	},
+	"encoder_5":{
+	    "name":"enc_5",
+	    "line_1":{
+		"line_num":12,
+		"keys":["KEY_5","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":13,
+		"keys":["KEY_5","KEY_MINUS"]
+	    }
+	},
+	"encoder_6":{
+	    "name":"enc_6",
+	    "line_1":{
+		"line_num":14,
+		"keys":["KEY_6","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":15,
+		"keys":["KEY_6","KEY_MINUS"]
+	    }
+	},
+	"encoder_7":{
+	    "name":"enc_7",
+	    "line_1":{
+		"line_num":7,
+		"keys":["KEY_7","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":6,
+		"keys":["KEY_7","KEY_MINUS"]
+	    }
+	},
+	"encoder_8":{
+	    "name":"enc_8",
+	    "line_1":{
+		"line_num":9,
+		"keys":["KEY_8","KEY_EQUAL"]		
+	    },
+	    "line_2":{
+		"line_num":8,
+		"keys":["KEY_8","KEY_MINUS"]
+	    }
+	},
+	"encoder_9":{
+	    "name":"enc_9",
+	    "line_1":{
+		"line_num":24,
+		"keys":["KEY_UP"]		
+	    },
+	    "line_2":{
+		"line_num":27,
+		"keys":["KEY_DOWN"]
+	    }
+	},
 	"button_1":{
 	    "name":"btn_1",
 	    "line":{
@@ -36,7 +113,112 @@
 		"line_num":30,
 		"keys":["KEY_2", "KEY_RIGHT"]
 	    }
-	}
+	},
+	"button_3":{
+	    "name":"btn_3",
+	    "line":{
+		"line_num":31,
+		"keys":["KEY_3", "KEY_RIGHT"]
+	    }
+	},
+	"button_4":{
+	    "name":"btn_4",
+	    "line":{
+		"line_num":26,
+		"keys":["KEY_4", "KEY_RIGHT"]
+	    }
+	},
+	"button_5":{
+	    "name":"btn_5",
+	    "line":{
+		"line_num":29,
+		"keys":["KEY_5", "KEY_RIGHT"]
+	    }
+	},
+	"button_6":{
+	    "name":"btn_6",
+	    "line":{
+		"line_num":28,
+		"keys":["KEY_6", "KEY_RIGHT"]
+	    }
+	},
+	"button_7":{
+	    "name":"btn_7",
+	    "line":{
+		"line_num":23,
+		"keys":["KEY_7", "KEY_RIGHT"]
+	    }
+	},
+	"button_8":{
+	    "name":"btn_8",
+	    "line":{
+		"line_num":22,
+		"keys":["KEY_8", "KEY_RIGHT"]
+	    }
+	},
+	"button_9":{
+	    "name":"btn_9",
+	    "line":{
+		"line_num":25,
+		"keys":["KEY_ENTER"]
+	    }
+	},
+	"button_10":{
+	    "name":"btn_10",
+	    "line":{
+		"line_num":36,
+		"keys":["KEY_LEFT"]
+	    }
+	},
+	"button_11":{
+	    "name":"btn_11",
+	    "line":{
+		"line_num":35,
+		"keys":["KEY_LEFTMETA"]
+	    }
+	},
+	"button_12":{
+	    "name":"btn_12",
+	    "line":{
+		"line_num":34,
+		"keys":["KEY_RIGHTMETA"]
+	    }
+	},
+	"button_13":{
+	    "name":"btn_13",
+	    "line":{
+		"line_num":4,
+		"keys":["KEY_S"]
+	    }
+	},
+	"button_14":{
+	    "name":"btn_14",
+	    "line":{
+		"line_num":2,
+		"keys":["KEY_D"]
+	    }
+	},
+	"button_15":{
+	    "name":"btn_15",
+	    "line":{
+		"line_num":5,
+		"keys":["KEY_F"]
+	    }
+	},
+	"button_16":{
+	    "name":"btn_16",
+	    "line":{
+		"line_num":0,
+		"keys":["KEY_G"]
+	    }
+	},
+	"button_17":{
+	    "name":"btn_17",
+	    "line":{
+		"line_num":3,
+		"keys":["KEY_H"]
+	    }
+	}	
     },
     "chip_2":{
 	"chipname":"pinctrl-bcm2711",
@@ -53,6 +235,27 @@
 		"line_num":17,
 		"keys":["KEY_E"]
 	    }
-	}
+	},
+	"button_3":{
+	    "name":"btn_3",
+	    "line":{
+		"line_num":22,
+		"keys":["KEY_R"]
+	    }
+	},
+	"button_4":{
+	    "name":"btn_4",
+	    "line":{
+		"line_num":23,
+		"keys":["KEY_T"]
+	    }
+	},
+	"button_5":{
+	    "name":"btn_5",
+	    "line":{
+		"line_num":27,
+		"keys":["KEY_Y"]
+	    }
+	}	
     }
 }

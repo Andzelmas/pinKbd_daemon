@@ -718,7 +718,7 @@ int app_emmit_convert_to_enum(const char* in_string){
 
 }
 
-int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress){
+int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress, unsigned int unpress){
     if(!keypress)return -1;
     EMMIT_KEYPRESS* emmit_press = (EMMIT_KEYPRESS*)keypress;
     if(!emmit_press)return -1;
@@ -728,7 +728,11 @@ int app_emmit_emmit_keypress(int uinput_fd, APP_EMMIT_KEYPRESS* keypress){
 
     for(int i = 0; i < emmit_press->key_enums_size; i++){
 	int cur_keybit = emmit_press->key_enums[i];
-	emit(uinput_fd, EV_KEY, cur_keybit, 1);
+	printf("emmiting keypress %d\n", cur_keybit);
+	if(unpress == 0)
+	    emit(uinput_fd, EV_KEY, cur_keybit, 1);
+	if(unpress == 1)
+	    emit(uinput_fd, EV_KEY, cur_keybit, 0);
     }
     emit(uinput_fd, EV_SYN, SYN_REPORT, 0);
 
