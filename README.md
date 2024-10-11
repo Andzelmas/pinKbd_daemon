@@ -9,6 +9,8 @@ make
 
 make install
 
+make install will (among other things) copy the config file to /etc/pin_config.json. Modify this file directly or the pin_config.json file in the download directory and copy it to /etc/
+
 ### Uninstall
 make uninstall
 
@@ -19,4 +21,6 @@ To add lines and what shortcuts they emmit modify pin_config.json (it has a simp
 
 For possible keys to emmit take a look at https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
 
-Entered key shortcuts are up to Relative axes
+For encoders there must be two lines. First line keypress array is for the clock-wise rotation of the encoder, and the second line keypress array is for the counter clock-wise rotation.
+
+For buttons just one line with a single keypress array for it.
