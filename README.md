@@ -1,5 +1,7 @@
 # pinKbd_daemon
-Daemon that converts Pisound-Micro and Raspberry Pi GPIO pin info to keyboard events
+Daemon that converts chip for Raspberry Pi GPIO pin info to keyboard events.
+
+The name of the chip can be entered in the pin_config.json filename. So this can be used for the Rpi own GPIO or some other brand.
 
 ### Install
 Need to be able sudo /usr/bin/pinKbd_daemon without a password.
